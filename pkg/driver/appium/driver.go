@@ -179,8 +179,12 @@ func (d *Driver) SetFindTimeout(ms int) {
 
 // SetWaitForIdleTimeout sets the wait for idle timeout.
 // 0 = disabled, >0 = wait up to N ms for device to be idle.
+// Negative values are treated as 0 (disabled).
 // Skips the HTTP call if the value is already set (optimization for per-flow sessions).
 func (d *Driver) SetWaitForIdleTimeout(ms int) error {
+	if ms < 0 {
+		ms = 0
+	}
 	if d.waitForIdleTimeoutSet && d.currentWaitForIdleTimeout == ms {
 		return nil // already set, skip HTTP call
 	}

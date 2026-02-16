@@ -1564,16 +1564,95 @@ func TestApplyIOSPermissionUnset(t *testing.T) {
 // SetWaitForIdleTimeout test
 // =============================================================================
 
-// TestSetWaitForIdleTimeoutNoOp tests that SetWaitForIdleTimeout is a no-op.
-func TestSetWaitForIdleTimeoutNoOp(t *testing.T) {
-	driver := &Driver{
-		client: &Client{},
-		info:   &core.PlatformInfo{Platform: "ios"},
-	}
+// TestSetWaitForIdleTimeoutEnable tests that SetWaitForIdleTimeout enables quiescence for values > 200.
+func TestSetWaitForIdleTimeoutEnable(t *testing.T) {
+	var settingsReceived map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && strings.Contains(r.URL.Path, "/appium/settings") {
+			body, _ := io.ReadAll(r.Body)
+			var req map[string]interface{}
+			json.Unmarshal(body, &req)
+			if s, ok := req["settings"].(map[string]interface{}); ok {
+				settingsReceived = s
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"value": nil, "sessionId": "s1"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"value": nil, "sessionId": "s1"})
+	}))
+	defer server.Close()
+
+	client := &Client{baseURL: server.URL, sessionID: "s1", httpClient: server.Client()}
+	driver := &Driver{client: client, info: &core.PlatformInfo{Platform: "ios"}}
 
 	err := driver.SetWaitForIdleTimeout(5000)
 	if err != nil {
-		t.Fatalf("Expected nil error from no-op SetWaitForIdleTimeout, got: %v", err)
+		t.Fatalf("SetWaitForIdleTimeout(5000) returned error: %v", err)
+	}
+	if settingsReceived == nil {
+		t.Fatal("Expected settings to be sent to WDA")
+	}
+	if v, ok := settingsReceived["shouldWaitForQuiescence"]; !ok || v != true {
+		t.Errorf("Expected shouldWaitForQuiescence=true, got %v", v)
+	}
+	if v, ok := settingsReceived["waitForIdleTimeout"]; !ok || v != float64(5000) {
+		t.Errorf("Expected waitForIdleTimeout=5000, got %v", v)
+	}
+}
+
+// TestSetWaitForIdleTimeoutDisable tests that SetWaitForIdleTimeout(0) disables quiescence.
+func TestSetWaitForIdleTimeoutDisable(t *testing.T) {
+	var settingsReceived map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && strings.Contains(r.URL.Path, "/appium/settings") {
+			body, _ := io.ReadAll(r.Body)
+			var req map[string]interface{}
+			json.Unmarshal(body, &req)
+			if s, ok := req["settings"].(map[string]interface{}); ok {
+				settingsReceived = s
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"value": nil, "sessionId": "s1"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"value": nil, "sessionId": "s1"})
+	}))
+	defer server.Close()
+
+	client := &Client{baseURL: server.URL, sessionID: "s1", httpClient: server.Client()}
+	driver := &Driver{client: client, info: &core.PlatformInfo{Platform: "ios"}}
+
+	err := driver.SetWaitForIdleTimeout(0)
+	if err != nil {
+		t.Fatalf("SetWaitForIdleTimeout(0) returned error: %v", err)
+	}
+	if settingsReceived == nil {
+		t.Fatal("Expected settings to be sent to WDA")
+	}
+	if v, ok := settingsReceived["shouldWaitForQuiescence"]; !ok || v != false {
+		t.Errorf("Expected shouldWaitForQuiescence=false, got %v", v)
+	}
+}
+
+// TestSetWaitForIdleTimeoutDefault tests that default value (200) is a no-op.
+func TestSetWaitForIdleTimeoutDefault(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && strings.Contains(r.URL.Path, "/appium/settings") {
+			called = true
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"value": nil, "sessionId": "s1"})
+	}))
+	defer server.Close()
+
+	client := &Client{baseURL: server.URL, sessionID: "s1", httpClient: server.Client()}
+	driver := &Driver{client: client, info: &core.PlatformInfo{Platform: "ios"}}
+
+	err := driver.SetWaitForIdleTimeout(200)
+	if err != nil {
+		t.Fatalf("SetWaitForIdleTimeout(200) returned error: %v", err)
+	}
+	if called {
+		t.Error("Default value (200) should be a no-op, but settings were sent to WDA")
 	}
 }
 

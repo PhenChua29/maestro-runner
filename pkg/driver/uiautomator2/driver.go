@@ -98,7 +98,11 @@ func (d *Driver) SetOptionalFindTimeout(ms int) {
 
 // SetWaitForIdleTimeout sets the wait for idle timeout.
 // 0 = disabled, >0 = wait up to N ms for device to be idle.
+// Negative values are treated as 0 (disabled).
 func (d *Driver) SetWaitForIdleTimeout(ms int) error {
+	if ms < 0 {
+		ms = 0
+	}
 	return d.client.SetAppiumSettings(map[string]interface{}{
 		"waitForIdleTimeout": ms,
 	})
