@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Contributors
 
 [@janfreund](https://github.com/janfreund)
-1. Reported `scrollUntilVisible` and element visibility issues on iOS ([#2](https://github.com/devicelab-dev/maestro-runner/issues/2))
+1. Reported `scrollUntilVisible` and element visibility issues on iOS ([#9](https://github.com/devicelab-dev/maestro-runner/issues/9))
 
 [@kavithamahesh](https://github.com/kavithamahesh)
 1. Reported `when: platform` condition being ignored ([#8](https://github.com/devicelab-dev/maestro-runner/issues/8))
