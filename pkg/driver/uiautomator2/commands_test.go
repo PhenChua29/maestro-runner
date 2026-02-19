@@ -1592,6 +1592,15 @@ func TestScrollAllDirections(t *testing.T) {
 			if len(client.scrollCalls) != 1 {
 				t.Errorf("expected 1 scroll call, got %d", len(client.scrollCalls))
 			}
+			// Verify direction is passed through without inversion.
+			// The /appium/gestures/scroll API uses scroll semantics natively,
+			// so "down" means scroll content down (reveal below).
+			if len(client.scrollDirections) != 1 {
+				t.Fatalf("expected 1 scroll direction, got %d", len(client.scrollDirections))
+			}
+			if client.scrollDirections[0] != dir {
+				t.Errorf("expected direction %q passed through, got %q", dir, client.scrollDirections[0])
+			}
 		})
 	}
 }
@@ -1605,6 +1614,13 @@ func TestScrollEmptyDirection(t *testing.T) {
 
 	if !result.Success {
 		t.Errorf("expected success with empty direction (default down), got error: %v", result.Error)
+	}
+	// Empty direction should default to "down"
+	if len(client.scrollDirections) != 1 {
+		t.Fatalf("expected 1 scroll direction, got %d", len(client.scrollDirections))
+	}
+	if client.scrollDirections[0] != "down" {
+		t.Errorf("expected default direction 'down', got %q", client.scrollDirections[0])
 	}
 }
 
@@ -1855,33 +1871,6 @@ func TestSetClipboardError(t *testing.T) {
 
 	if result.Success {
 		t.Error("expected failure when SetClipboard returns error")
-	}
-}
-
-// ============================================================================
-// InvertScrollDirection Tests
-// ============================================================================
-
-func TestInvertScrollDirection(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"up", "down"},
-		{"down", "up"},
-		{"left", "right"},
-		{"right", "left"},
-		{"unknown", "up"}, // default = swipe up (scroll down)
-		{"", "up"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got := invertScrollDirection(tt.input)
-			if got != tt.expected {
-				t.Errorf("invertScrollDirection(%q) = %q, want %q", tt.input, got, tt.expected)
-			}
-		})
 	}
 }
 

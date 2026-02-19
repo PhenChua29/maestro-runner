@@ -395,10 +395,6 @@ func (d *Driver) scroll(step *flow.ScrollStep) *core.CommandResult {
 		direction = "down"
 	}
 
-	// Invert direction: scroll direction = content movement, swipe = finger gesture
-	// "scroll down" means reveal content below, which requires swiping up
-	uiaDir := invertScrollDirection(direction)
-
 	// Get screen size for dynamic scroll area
 	width, height, err := d.screenSize()
 	if err != nil {
@@ -408,7 +404,8 @@ func (d *Driver) scroll(step *flow.ScrollStep) *core.CommandResult {
 	// Use most of screen for scroll area (leave margins)
 	area := uiautomator2.NewRect(0, height/8, width, height*3/4)
 
-	if err := d.client.ScrollInArea(area, uiaDir, 0.5, 0); err != nil {
+	// /appium/gestures/scroll already uses scroll semantics — no inversion needed
+	if err := d.client.ScrollInArea(area, direction, 0.5, 0); err != nil {
 		return errorResult(err, fmt.Sprintf("Failed to scroll: %v", err))
 	}
 
@@ -422,9 +419,6 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 	}
 
 	maxScrolls := 10
-	// Invert direction: scroll direction = content movement, swipe = finger gesture
-	// "scroll down" means reveal content below, which requires swiping up
-	uiaDir := invertScrollDirection(direction)
 
 	// Get screen size for dynamic scroll area
 	width, height, err := d.screenSize()
@@ -443,8 +437,8 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 			return successResult(fmt.Sprintf("Element found after %d scrolls", i), info)
 		}
 
-		// Scroll
-		if err := d.client.ScrollInArea(area, uiaDir, 0.3, 0); err != nil {
+		// /appium/gestures/scroll already uses scroll semantics — no inversion needed
+		if err := d.client.ScrollInArea(area, direction, 0.3, 0); err != nil {
 			return errorResult(err, fmt.Sprintf("Failed to scroll: %v", err))
 		}
 
@@ -1666,24 +1660,6 @@ func mapDirection(dir string) string {
 		return uiautomator2.DirectionRight
 	default:
 		return uiautomator2.DirectionDown
-	}
-}
-
-// invertScrollDirection converts scroll direction (content movement direction)
-// to swipe direction (finger gesture direction).
-// In Maestro: ScrollDirection.DOWN -> SwipeDirection.UP (to reveal content below)
-func invertScrollDirection(dir string) string {
-	switch dir {
-	case "up":
-		return uiautomator2.DirectionDown
-	case "down":
-		return uiautomator2.DirectionUp
-	case "left":
-		return uiautomator2.DirectionRight
-	case "right":
-		return uiautomator2.DirectionLeft
-	default:
-		return uiautomator2.DirectionUp // default: scroll down = swipe up
 	}
 }
 

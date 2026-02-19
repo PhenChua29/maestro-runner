@@ -38,6 +38,7 @@ type MockUIA2Client struct {
 	doubleClickCalls    []struct{ X, Y int }
 	longClickCalls      []struct{ X, Y, Duration int }
 	scrollCalls         []uiautomator2.RectModel
+	scrollDirections    []string
 	swipeCalls          []uiautomator2.RectModel
 	pressKeyCalls       []int
 	backCalls           int
@@ -105,6 +106,7 @@ func (m *MockUIA2Client) LongClickElement(elementID string, durationMs int) erro
 
 func (m *MockUIA2Client) ScrollInArea(area uiautomator2.RectModel, direction string, percent float64, speed int) error {
 	m.scrollCalls = append(m.scrollCalls, area)
+	m.scrollDirections = append(m.scrollDirections, direction)
 	return m.scrollErr
 }
 
@@ -639,6 +641,9 @@ func TestExecuteScroll(t *testing.T) {
 	if len(client.scrollCalls) != 1 {
 		t.Errorf("expected 1 scroll call, got %d", len(client.scrollCalls))
 	}
+	if len(client.scrollDirections) != 1 || client.scrollDirections[0] != "down" {
+		t.Errorf("expected scroll direction 'down', got %v", client.scrollDirections)
+	}
 }
 
 func TestExecuteScrollError(t *testing.T) {
@@ -662,6 +667,9 @@ func TestExecuteScrollDefaultDirection(t *testing.T) {
 
 	if !result.Success {
 		t.Errorf("expected success, got error: %v", result.Error)
+	}
+	if len(client.scrollDirections) != 1 || client.scrollDirections[0] != "down" {
+		t.Errorf("expected default scroll direction 'down', got %v", client.scrollDirections)
 	}
 }
 
