@@ -281,6 +281,8 @@ func checkHealthWithClient(client *http.Client, url string) bool {
 }
 
 // InstallUIAutomator2 installs UIAutomator2 APKs from the given directory.
+// If the server is already installed but at a different version, it uninstalls
+// first (handles signing key conflicts) and installs the bundled version.
 func (d *AndroidDevice) InstallUIAutomator2(apksDir string) error {
 	apks := []struct {
 		pkg     string
@@ -291,19 +293,54 @@ func (d *AndroidDevice) InstallUIAutomator2(apksDir string) error {
 	}
 
 	for _, apk := range apks {
-		if d.IsInstalled(apk.pkg) {
-			continue // Already installed
-		}
 		apkPath, err := findAPK(apksDir, apk.pattern)
 		if err != nil {
 			return fmt.Errorf("failed to find APK for %s: %w", apk.pkg, err)
 		}
+
+		if d.IsInstalled(apk.pkg) {
+			// Check version — only reinstall if version differs
+			if apk.pkg == UIAutomator2Server {
+				installedVersion := d.GetAppVersion(apk.pkg)
+				bundledVersion := extractVersionFromFilename(apkPath)
+				if installedVersion != "" && bundledVersion != "" && installedVersion == bundledVersion {
+					continue // Same version, skip
+				}
+				logger.Info("UIAutomator2 server version mismatch: installed=%s, bundled=%s — upgrading",
+					installedVersion, bundledVersion)
+			} else {
+				continue // Test runner doesn't change often, skip if installed
+			}
+
+			// Uninstall first to handle signing key conflicts
+			// (e.g., Appium-signed vs maestro-runner-signed)
+			_ = d.Uninstall(apk.pkg)
+			// Also uninstall test runner since they must match
+			if apk.pkg == UIAutomator2Server {
+				_ = d.Uninstall(UIAutomator2Test)
+			}
+		}
+
 		if err := d.Install(apkPath); err != nil {
 			return fmt.Errorf("failed to install %s: %w", apk.pkg, err)
 		}
 	}
 
 	return nil
+}
+
+// extractVersionFromFilename extracts version from APK filename.
+// e.g., "appium-uiautomator2-server-v9.11.1.apk" → "9.11.1"
+func extractVersionFromFilename(path string) string {
+	base := filepath.Base(path)
+	// Look for "-v" followed by version number
+	idx := strings.LastIndex(base, "-v")
+	if idx < 0 {
+		return ""
+	}
+	version := base[idx+2:]
+	version = strings.TrimSuffix(version, ".apk")
+	return version
 }
 
 // findAPK finds an APK file matching the pattern in the given directory.

@@ -174,6 +174,10 @@ func (m *MockUIA2Client) GetDeviceInfo() (*uiautomator2.DeviceInfo, error) {
 	}, nil
 }
 
+func (m *MockUIA2Client) LaunchApp(appID string, arguments map[string]interface{}) error {
+	return errors.New("not implemented in mock")
+}
+
 func (m *MockUIA2Client) SetAppiumSettings(settings map[string]interface{}) error {
 	return nil
 }

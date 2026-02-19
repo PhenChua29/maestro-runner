@@ -242,6 +242,18 @@ func (c *Client) UpdateSettings(settings map[string]interface{}) error {
 	return err
 }
 
+// LaunchApp launches an app by package name using the on-device PackageManager API.
+// This calls getLaunchIntentForPackage() + startActivity() on the device — reliable
+// across all Android versions and OEMs. Optional arguments are passed as intent extras.
+func (c *Client) LaunchApp(appID string, arguments map[string]interface{}) error {
+	req := map[string]interface{}{"appId": appID}
+	if len(arguments) > 0 {
+		req["arguments"] = arguments
+	}
+	_, err := c.request("POST", c.sessionPath("/appium/device/launch_app"), req)
+	return err
+}
+
 // decodeBase64 decodes a base64 string to bytes.
 func decodeBase64(s string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(s)

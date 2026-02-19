@@ -234,3 +234,65 @@ func TestCheckHealthViaTCP_InvalidPort(t *testing.T) {
 		t.Error("expected false for port with no server")
 	}
 }
+
+// ============================================================
+// Tests for extractVersionFromFilename
+// ============================================================
+
+func TestExtractVersionFromFilename(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		expected string
+	}{
+		{
+			name:     "standard versioned APK",
+			path:     "/path/to/appium-uiautomator2-server-v9.11.1.apk",
+			expected: "9.11.1",
+		},
+		{
+			name:     "two-part version",
+			path:     "appium-uiautomator2-server-v1.0.apk",
+			expected: "1.0",
+		},
+		{
+			name:     "four-part version",
+			path:     "/some/dir/appium-uiautomator2-server-v1.2.3.4.apk",
+			expected: "1.2.3.4",
+		},
+		{
+			name:     "no version marker",
+			path:     "/path/to/appium-uiautomator2-server-debug-androidTest.apk",
+			expected: "",
+		},
+		{
+			name:     "empty path",
+			path:     "",
+			expected: "",
+		},
+		{
+			name:     "just filename",
+			path:     "server-v2.5.0.apk",
+			expected: "2.5.0",
+		},
+		{
+			name:     "path with no apk extension",
+			path:     "/path/to/server-v1.0",
+			expected: "1.0",
+		},
+		{
+			name:     "multiple -v in path",
+			path:     "/path/v-stuff/server-v3.0.0.apk",
+			expected: "3.0.0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractVersionFromFilename(tt.path)
+			if result != tt.expected {
+				t.Errorf("extractVersionFromFilename(%q) = %q, want %q", tt.path, result, tt.expected)
+			}
+		})
+	}
+}

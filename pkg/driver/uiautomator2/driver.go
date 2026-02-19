@@ -52,6 +52,9 @@ type UIA2Client interface {
 	SetClipboard(text string) error
 	GetDeviceInfo() (*uiautomator2.DeviceInfo, error)
 
+	// App lifecycle
+	LaunchApp(appID string, arguments map[string]interface{}) error
+
 	// Settings
 	SetAppiumSettings(settings map[string]interface{}) error
 }

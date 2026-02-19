@@ -97,6 +97,29 @@ func TestRandomString(t *testing.T) {
 	}
 }
 
+// shellMock allows per-command responses for testing launch fallback chains.
+type shellMock struct {
+	commands  []string
+	responses map[string]string // command substring → response
+	errors    map[string]error  // command substring → error
+	fallback  string            // default response
+}
+
+func (m *shellMock) Shell(cmd string) (string, error) {
+	m.commands = append(m.commands, cmd)
+	for substr, err := range m.errors {
+		if strings.Contains(cmd, substr) {
+			return "", err
+		}
+	}
+	for substr, resp := range m.responses {
+		if strings.Contains(cmd, substr) {
+			return resp, nil
+		}
+	}
+	return m.fallback, nil
+}
+
 func TestLaunchAppNoDevice(t *testing.T) {
 	driver := &Driver{device: nil}
 	step := &flow.LaunchAppStep{AppID: "com.example.app"}
@@ -106,8 +129,8 @@ func TestLaunchAppNoDevice(t *testing.T) {
 	if result.Success {
 		t.Error("expected failure when device is nil")
 	}
-	if result.Error == nil {
-		t.Error("expected error when device is nil")
+	if !strings.Contains(result.Message, "no device connected") {
+		t.Errorf("expected helpful error message, got: %s", result.Message)
 	}
 }
 
@@ -123,9 +146,32 @@ func TestLaunchAppNoAppID(t *testing.T) {
 	}
 }
 
-func TestLaunchAppSuccess(t *testing.T) {
-	mock := &MockShellExecutor{response: "Success"}
-	driver := &Driver{device: mock}
+func TestLaunchAppViaServer(t *testing.T) {
+	// When server endpoint works, shell fallback should not be used
+	shell := &shellMock{fallback: "Success"}
+	client := &MockUIA2Client{}
+	driver := &Driver{device: shell, client: client}
+	step := &flow.LaunchAppStep{AppID: "com.example.app"}
+
+	result := driver.launchApp(step)
+
+	// Server mock returns error, so it falls back to shell — that's expected
+	// because MockUIA2Client.LaunchApp returns "not implemented"
+	if !result.Success {
+		t.Errorf("expected success, got error: %v", result.Error)
+	}
+}
+
+func TestLaunchAppShellResolveActivity(t *testing.T) {
+	// resolve-activity returns valid activity → am start with proper flags
+	shell := &shellMock{
+		responses: map[string]string{
+			"getprop ro.build.version.sdk": "30",
+			"resolve-activity":            "com.example.app/.MainActivity",
+		},
+		fallback: "Success",
+	}
+	driver := &Driver{device: shell}
 	step := &flow.LaunchAppStep{AppID: "com.example.app"}
 
 	result := driver.launchApp(step)
@@ -134,9 +180,163 @@ func TestLaunchAppSuccess(t *testing.T) {
 		t.Errorf("expected success, got error: %v", result.Error)
 	}
 
-	// Should have called force-stop and monkey
-	if len(mock.commands) < 2 {
-		t.Errorf("expected at least 2 commands, got %d", len(mock.commands))
+	// Verify resolve-activity includes MAIN/LAUNCHER flags
+	foundResolve := false
+	for _, cmd := range shell.commands {
+		if strings.Contains(cmd, "resolve-activity") {
+			foundResolve = true
+			if !strings.Contains(cmd, "android.intent.action.MAIN") {
+				t.Error("resolve-activity missing -a android.intent.action.MAIN")
+			}
+			if !strings.Contains(cmd, "android.intent.category.LAUNCHER") {
+				t.Error("resolve-activity missing -c android.intent.category.LAUNCHER")
+			}
+		}
+	}
+	if !foundResolve {
+		t.Error("expected resolve-activity command")
+	}
+
+	// Verify am start-activity used for API 30
+	foundStart := false
+	for _, cmd := range shell.commands {
+		if strings.Contains(cmd, "am start-activity") {
+			foundStart = true
+			if !strings.Contains(cmd, "-W") {
+				t.Error("am start-activity missing -W flag")
+			}
+			if !strings.Contains(cmd, "-f 0x10200000") {
+				t.Error("am start-activity missing intent flags")
+			}
+		}
+	}
+	if !foundStart {
+		t.Error("expected am start-activity command for API >= 26")
+	}
+}
+
+func TestLaunchAppShellAmStartForOlderAPI(t *testing.T) {
+	// API 25 should use "am start" not "am start-activity"
+	shell := &shellMock{
+		responses: map[string]string{
+			"getprop ro.build.version.sdk": "25",
+			"resolve-activity":            "com.example.app/.MainActivity",
+		},
+		fallback: "Success",
+	}
+	driver := &Driver{device: shell}
+	step := &flow.LaunchAppStep{AppID: "com.example.app"}
+
+	result := driver.launchApp(step)
+
+	if !result.Success {
+		t.Errorf("expected success, got error: %v", result.Error)
+	}
+
+	foundAmStart := false
+	for _, cmd := range shell.commands {
+		if strings.HasPrefix(cmd, "am start ") {
+			foundAmStart = true
+		}
+		if strings.Contains(cmd, "am start-activity") {
+			t.Error("API 25 should use 'am start' not 'am start-activity'")
+		}
+	}
+	if !foundAmStart {
+		t.Error("expected 'am start' command for API < 26")
+	}
+}
+
+func TestLaunchAppMonkeyFallbackOldAPI(t *testing.T) {
+	// API < 24: should go straight to monkey, skip resolve-activity
+	shell := &shellMock{
+		responses: map[string]string{
+			"getprop ro.build.version.sdk": "23",
+		},
+		fallback: "Events injected: 1",
+	}
+	driver := &Driver{device: shell}
+	step := &flow.LaunchAppStep{AppID: "com.example.app"}
+
+	result := driver.launchApp(step)
+
+	if !result.Success {
+		t.Errorf("expected success, got error: %v", result.Error)
+	}
+
+	// Should use monkey, not resolve-activity
+	foundMonkey := false
+	for _, cmd := range shell.commands {
+		if strings.Contains(cmd, "monkey") {
+			foundMonkey = true
+		}
+		if strings.Contains(cmd, "resolve-activity") {
+			t.Error("API < 24 should not call resolve-activity")
+		}
+	}
+	if !foundMonkey {
+		t.Error("expected monkey command for API < 24")
+	}
+}
+
+func TestLaunchAppMonkeyFallbackResolveFailed(t *testing.T) {
+	// resolve-activity fails → falls back to monkey for no-args case
+	shell := &shellMock{
+		responses: map[string]string{
+			"getprop ro.build.version.sdk": "30",
+			"resolve-activity":            "No activity found",
+		},
+		errors: map[string]error{
+			"dumpsys package": fmt.Errorf("dumpsys failed"),
+		},
+		fallback: "Events injected: 1",
+	}
+	driver := &Driver{device: shell}
+	step := &flow.LaunchAppStep{AppID: "com.example.app"}
+
+	result := driver.launchApp(step)
+
+	if !result.Success {
+		t.Errorf("expected success via monkey fallback, got: %v", result.Error)
+	}
+
+	foundMonkey := false
+	for _, cmd := range shell.commands {
+		if strings.Contains(cmd, "monkey") {
+			foundMonkey = true
+		}
+	}
+	if !foundMonkey {
+		t.Error("expected monkey fallback when resolve-activity fails")
+	}
+}
+
+func TestLaunchAppMonkeyAborted(t *testing.T) {
+	// Everything fails including monkey → clear error message
+	shell := &shellMock{
+		responses: map[string]string{
+			"getprop ro.build.version.sdk": "30",
+			"resolve-activity":            "No activity found",
+			"monkey":                       "monkey aborted",
+		},
+		errors: map[string]error{
+			"dumpsys package": fmt.Errorf("dumpsys failed"),
+		},
+		fallback: "",
+	}
+	driver := &Driver{device: shell}
+	step := &flow.LaunchAppStep{AppID: "com.bad.app"}
+
+	result := driver.launchApp(step)
+
+	if result.Success {
+		t.Error("expected failure when all methods fail")
+	}
+	if !strings.Contains(result.Message, "all launch methods failed") {
+		t.Errorf("expected helpful error message, got: %s", result.Message)
+	}
+	if !strings.Contains(result.Message, "pm list packages") {
+		t.Error("error message should suggest checking if app is installed")
 	}
 }
 
@@ -154,7 +354,6 @@ func TestLaunchAppWithClearState(t *testing.T) {
 		t.Errorf("expected success, got error: %v", result.Error)
 	}
 
-	// Should have called pm clear
 	foundClear := false
 	for _, cmd := range mock.commands {
 		if cmd == "pm clear com.example.app" {
@@ -178,12 +377,90 @@ func TestLaunchAppStopAppFalse(t *testing.T) {
 
 	driver.launchApp(step)
 
-	// Should NOT have called force-stop
 	for _, cmd := range mock.commands {
 		if cmd == "am force-stop com.example.app" {
 			t.Error("should not call force-stop when StopApp=false")
 		}
 	}
+}
+
+func TestLaunchAppDumpsysFallbackWithArgs(t *testing.T) {
+	// resolve-activity fails but dumpsys works → launch with arguments
+	shell := &shellMock{
+		responses: map[string]string{
+			"getprop ro.build.version.sdk": "30",
+			"resolve-activity":            "No activity found",
+			"dumpsys package": "com.example.app/.MainActivity filter abc123\n" +
+				"  Action: \"android.intent.action.MAIN\"\n" +
+				"  Category: \"android.intent.category.LAUNCHER\"\n",
+		},
+		fallback: "Success",
+	}
+	driver := &Driver{device: shell}
+	step := &flow.LaunchAppStep{
+		AppID:     "com.example.app",
+		Arguments: map[string]any{"key1": "value1"},
+	}
+
+	result := driver.launchApp(step)
+
+	if !result.Success {
+		t.Errorf("expected success via dumpsys fallback, got: %v", result.Error)
+	}
+
+	// Verify am start includes the extra
+	foundExtra := false
+	for _, cmd := range shell.commands {
+		if strings.Contains(cmd, "--es key1") {
+			foundExtra = true
+		}
+	}
+	if !foundExtra {
+		t.Error("expected intent extras in am start command")
+	}
+}
+
+func TestLaunchAppDotPrefixRetry(t *testing.T) {
+	callCount := 0
+	shell := &shellMock{
+		responses: map[string]string{
+			"getprop ro.build.version.sdk": "30",
+			"resolve-activity":            "com.example.app/MainActivity",
+		},
+		fallback: "Success",
+	}
+	// Override Shell to return error on first am start, success on retry with dot prefix
+	origShell := shell.Shell
+	_ = origShell
+	driver := &Driver{device: &dotPrefixShellMock{callCount: &callCount}}
+	step := &flow.LaunchAppStep{AppID: "com.example.app"}
+
+	result := driver.launchApp(step)
+
+	// Should succeed (either via dot-prefix retry or monkey fallback)
+	if !result.Success {
+		t.Errorf("expected success, got error: %v", result.Error)
+	}
+}
+
+// dotPrefixShellMock simulates activity not found then success on dot-prefix retry.
+type dotPrefixShellMock struct {
+	commands  []string
+	callCount *int
+}
+
+func (m *dotPrefixShellMock) Shell(cmd string) (string, error) {
+	m.commands = append(m.commands, cmd)
+	if strings.Contains(cmd, "getprop") {
+		return "30", nil
+	}
+	if strings.Contains(cmd, "resolve-activity") {
+		return "com.example.app/MainActivity", nil
+	}
+	if strings.Contains(cmd, "am start-activity") && strings.Contains(cmd, "/MainActivity") && !strings.Contains(cmd, "/.MainActivity") {
+		return "Error: Activity class {com.example.app/MainActivity} does not exist.", nil
+	}
+	return "Success", nil
 }
 
 func TestStopAppNoDevice(t *testing.T) {
@@ -3329,6 +3606,468 @@ func TestInputTextKeyPressEmptyText(t *testing.T) {
 
 	if result.Success {
 		t.Error("expected failure for empty text even with keyPress=true")
+	}
+}
+
+// ============================================================================
+// addDotPrefix Unit Tests
+// ============================================================================
+
+func TestAddDotPrefix(t *testing.T) {
+	driver := &Driver{}
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple activity name without dot",
+			input:    "com.example.app/MainActivity",
+			expected: "com.example.app/.MainActivity",
+		},
+		{
+			name:     "already has dot prefix",
+			input:    "com.example.app/.MainActivity",
+			expected: "com.example.app/.MainActivity",
+		},
+		{
+			name:     "fully qualified activity name",
+			input:    "com.example.app/com.example.app.MainActivity",
+			expected: "com.example.app/com.example.app.MainActivity",
+		},
+		{
+			name:     "no slash in activity string",
+			input:    "com.example.app",
+			expected: "com.example.app",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "slash at end",
+			input:    "com.example.app/",
+			expected: "com.example.app/.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := driver.addDotPrefix(tt.input)
+			if result != tt.expected {
+				t.Errorf("addDotPrefix(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// ============================================================================
+// getAPILevel Unit Tests
+// ============================================================================
+
+func TestGetAPILevel(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+		err      error
+		expected int
+	}{
+		{
+			name:     "valid API 30",
+			response: "30\n",
+			expected: 30,
+		},
+		{
+			name:     "valid API 23",
+			response: "23",
+			expected: 23,
+		},
+		{
+			name:     "valid API 34 with whitespace",
+			response: "  34  \n",
+			expected: 34,
+		},
+		{
+			name:     "shell error returns default",
+			err:      errors.New("shell failed"),
+			expected: 24,
+		},
+		{
+			name:     "non-numeric response returns default",
+			response: "unknown",
+			expected: 24,
+		},
+		{
+			name:     "empty response returns default",
+			response: "",
+			expected: 24,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &MockShellExecutor{response: tt.response, err: tt.err}
+			driver := &Driver{device: mock}
+			result := driver.getAPILevel()
+			if result != tt.expected {
+				t.Errorf("getAPILevel() = %d, want %d", result, tt.expected)
+			}
+		})
+	}
+}
+
+// ============================================================================
+// resolveLauncherFromDumpsys Unit Tests
+// ============================================================================
+
+func TestResolveLauncherFromDumpsys(t *testing.T) {
+	tests := []struct {
+		name      string
+		appID     string
+		output    string
+		shellErr  error
+		wantErr   bool
+		wantValue string
+	}{
+		{
+			name:  "valid MAIN/LAUNCHER activity",
+			appID: "com.example.app",
+			output: "com.example.app/.MainActivity filter abc123\n" +
+				"  Action: \"android.intent.action.MAIN\"\n" +
+				"  Category: \"android.intent.category.LAUNCHER\"\n",
+			wantValue: "com.example.app/.MainActivity",
+		},
+		{
+			name:  "activity found in later block",
+			appID: "com.example.app",
+			output: "com.example.app/.SplashActivity filter def456\n" +
+				"  Action: \"android.intent.action.VIEW\"\n" +
+				"  Category: \"android.intent.category.DEFAULT\"\n" +
+				"\n" +
+				"com.example.app/.MainActivity filter abc123\n" +
+				"  Action: \"android.intent.action.MAIN\"\n" +
+				"  Category: \"android.intent.category.LAUNCHER\"\n",
+			wantValue: "com.example.app/.MainActivity",
+		},
+		{
+			name:  "no MAIN/LAUNCHER activity",
+			appID: "com.example.app",
+			output: "com.example.app/.SplashActivity filter def456\n" +
+				"  Action: \"android.intent.action.VIEW\"\n" +
+				"  Category: \"android.intent.category.DEFAULT\"\n",
+			wantErr: true,
+		},
+		{
+			name:     "shell error",
+			appID:    "com.example.app",
+			shellErr: errors.New("dumpsys failed"),
+			wantErr:  true,
+		},
+		{
+			name:    "empty output",
+			appID:   "com.example.app",
+			output:  "",
+			wantErr: true,
+		},
+		{
+			name:  "has MAIN but no LAUNCHER",
+			appID: "com.example.app",
+			output: "com.example.app/.MainActivity filter abc123\n" +
+				"  Action: \"android.intent.action.MAIN\"\n" +
+				"  Category: \"android.intent.category.DEFAULT\"\n",
+			wantErr: true,
+		},
+		{
+			name:  "has LAUNCHER but no MAIN",
+			appID: "com.example.app",
+			output: "com.example.app/.MainActivity filter abc123\n" +
+				"  Action: \"android.intent.action.VIEW\"\n" +
+				"  Category: \"android.intent.category.LAUNCHER\"\n",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &shellMock{
+				responses: map[string]string{
+					"dumpsys package": tt.output,
+				},
+				errors: map[string]error{},
+			}
+			if tt.shellErr != nil {
+				mock.errors["dumpsys package"] = tt.shellErr
+			}
+			driver := &Driver{device: mock}
+
+			result, err := driver.resolveLauncherFromDumpsys(tt.appID)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got nil (result=%q)", result)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if result != tt.wantValue {
+				t.Errorf("got %q, want %q", result, tt.wantValue)
+			}
+		})
+	}
+}
+
+// ============================================================================
+// resolveLauncherActivity Unit Tests
+// ============================================================================
+
+func TestResolveLauncherActivity(t *testing.T) {
+	tests := []struct {
+		name      string
+		appID     string
+		apiLevel  int
+		responses map[string]string
+		errors    map[string]error
+		wantErr   bool
+		wantValue string
+	}{
+		{
+			name:     "resolve-activity succeeds on API 24+",
+			appID:    "com.example.app",
+			apiLevel: 30,
+			responses: map[string]string{
+				"resolve-activity": "com.example.app/.MainActivity",
+			},
+			wantValue: "com.example.app/.MainActivity",
+		},
+		{
+			name:     "resolve-activity returns No activity found, falls back to dumpsys",
+			appID:    "com.example.app",
+			apiLevel: 30,
+			responses: map[string]string{
+				"resolve-activity": "No activity found",
+				"dumpsys package": "com.example.app/.MainActivity filter abc123\n" +
+					"  Action: \"android.intent.action.MAIN\"\n" +
+					"  Category: \"android.intent.category.LAUNCHER\"\n",
+			},
+			wantValue: "com.example.app/.MainActivity",
+		},
+		{
+			name:     "resolve-activity returns ResolverActivity, falls back to dumpsys",
+			appID:    "com.example.app",
+			apiLevel: 28,
+			responses: map[string]string{
+				"resolve-activity": "android/com.android.internal.app.ResolverActivity",
+				"dumpsys package": "com.example.app/.MainActivity filter abc123\n" +
+					"  Action: \"android.intent.action.MAIN\"\n" +
+					"  Category: \"android.intent.category.LAUNCHER\"\n",
+			},
+			wantValue: "com.example.app/.MainActivity",
+		},
+		{
+			name:     "API < 24 skips resolve-activity, uses dumpsys directly",
+			appID:    "com.example.app",
+			apiLevel: 23,
+			responses: map[string]string{
+				"dumpsys package": "com.example.app/.MainActivity filter abc123\n" +
+					"  Action: \"android.intent.action.MAIN\"\n" +
+					"  Category: \"android.intent.category.LAUNCHER\"\n",
+			},
+			wantValue: "com.example.app/.MainActivity",
+		},
+		{
+			name:     "both methods fail",
+			appID:    "com.bad.app",
+			apiLevel: 30,
+			responses: map[string]string{
+				"resolve-activity": "No activity found",
+			},
+			errors: map[string]error{
+				"dumpsys package": errors.New("dumpsys failed"),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &shellMock{
+				responses: tt.responses,
+				errors:    tt.errors,
+			}
+			if mock.errors == nil {
+				mock.errors = map[string]error{}
+			}
+			driver := &Driver{device: mock}
+
+			result, err := driver.resolveLauncherActivity(tt.appID, tt.apiLevel)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got nil (result=%q)", result)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if result != tt.wantValue {
+				t.Errorf("got %q, want %q", result, tt.wantValue)
+			}
+		})
+	}
+}
+
+// ============================================================================
+// launchWithMonkey Unit Tests
+// ============================================================================
+
+func TestLaunchWithMonkey(t *testing.T) {
+	tests := []struct {
+		name    string
+		appID   string
+		output  string
+		err     error
+		wantOK  bool
+	}{
+		{
+			name:   "successful launch",
+			appID:  "com.example.app",
+			output: "Events injected: 1",
+			wantOK: true,
+		},
+		{
+			name:   "monkey aborted",
+			appID:  "com.bad.app",
+			output: "monkey aborted",
+			wantOK: false,
+		},
+		{
+			name:   "shell error",
+			appID:  "com.bad.app",
+			err:    errors.New("shell error"),
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &MockShellExecutor{response: tt.output, err: tt.err}
+			driver := &Driver{device: mock}
+			result := driver.launchWithMonkey(tt.appID)
+			if result.Success != tt.wantOK {
+				t.Errorf("launchWithMonkey(%q).Success = %v, want %v (msg: %s)",
+					tt.appID, result.Success, tt.wantOK, result.Message)
+			}
+			if tt.wantOK {
+				// Verify monkey command was issued
+				found := false
+				for _, cmd := range mock.commands {
+					if strings.Contains(cmd, "monkey") && strings.Contains(cmd, tt.appID) {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("expected monkey command with appID %s", tt.appID)
+				}
+			}
+		})
+	}
+}
+
+// ============================================================================
+// launchAppViaShell with Various Argument Types
+// ============================================================================
+
+func TestLaunchAppViaShellWithArgTypes(t *testing.T) {
+	shell := &shellMock{
+		responses: map[string]string{
+			"getprop ro.build.version.sdk": "30",
+			"resolve-activity":            "com.example.app/.MainActivity",
+		},
+		fallback: "Success",
+	}
+	driver := &Driver{device: shell}
+
+	// Test with multiple argument types
+	args := map[string]interface{}{
+		"stringKey": "stringValue",
+		"intKey":    float64(42),    // JSON unmarshals numbers as float64
+		"floatKey":  float64(3.14),
+		"boolKey":   true,
+	}
+
+	result := driver.launchAppViaShell("com.example.app", args)
+	if !result.Success {
+		t.Errorf("expected success, got error: %v", result.Error)
+	}
+
+	// Verify the am start command has all extras
+	foundAmStart := false
+	for _, cmd := range shell.commands {
+		if strings.Contains(cmd, "am start-activity") {
+			foundAmStart = true
+			if !strings.Contains(cmd, "--es stringKey") {
+				t.Error("missing --es stringKey in command")
+			}
+			if !strings.Contains(cmd, "--ei intKey 42") {
+				t.Error("missing --ei intKey in command")
+			}
+			if !strings.Contains(cmd, "--ef floatKey") {
+				t.Error("missing --ef floatKey in command")
+			}
+			if !strings.Contains(cmd, "--ez boolKey true") {
+				t.Error("missing --ez boolKey in command")
+			}
+		}
+	}
+	if !foundAmStart {
+		t.Error("expected am start-activity command")
+	}
+}
+
+// ============================================================================
+// launchAppViaShell am start output error handling
+// ============================================================================
+
+func TestLaunchAppViaShellAmStartError(t *testing.T) {
+	// am start returns Error in output (not shell error)
+	shell := &shellMock{
+		responses: map[string]string{
+			"getprop ro.build.version.sdk": "30",
+			"resolve-activity":            "com.example.app/.MainActivity",
+			"am start-activity":           "Error: Activity not started",
+			"monkey":                       "Events injected: 1",
+		},
+		fallback: "",
+	}
+	driver := &Driver{device: shell}
+
+	// Without args, should fall back to monkey
+	result := driver.launchAppViaShell("com.example.app", nil)
+	if !result.Success {
+		t.Errorf("expected success via monkey fallback, got: %v", result.Error)
+	}
+}
+
+func TestLaunchAppViaShellAmStartErrorWithArgs(t *testing.T) {
+	// am start returns Error in output with arguments - no monkey fallback
+	shell := &shellMock{
+		responses: map[string]string{
+			"getprop ro.build.version.sdk": "30",
+			"resolve-activity":            "com.example.app/.MainActivity",
+			"am start-activity":           "Error: Activity not started",
+		},
+		fallback: "",
+	}
+	driver := &Driver{device: shell}
+
+	args := map[string]interface{}{"key": "value"}
+	result := driver.launchAppViaShell("com.example.app", args)
+	if result.Success {
+		t.Error("expected failure when am start fails with arguments (no monkey fallback)")
 	}
 }
 

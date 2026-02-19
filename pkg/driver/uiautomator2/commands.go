@@ -3,6 +3,7 @@ package uiautomator2
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -711,11 +712,11 @@ func (d *Driver) pressKey(step *flow.PressKeyStep) *core.CommandResult {
 func (d *Driver) launchApp(step *flow.LaunchAppStep) *core.CommandResult {
 	appID := step.AppID
 	if appID == "" {
-		return errorResult(fmt.Errorf("no appId specified"), "No app ID to launch")
+		return errorResult(fmt.Errorf("no appId specified"), "launchApp: no appId specified in flow")
 	}
 
 	if d.device == nil {
-		return errorResult(fmt.Errorf("device not configured"), "launchApp requires device access")
+		return errorResult(fmt.Errorf("device not configured"), "launchApp: no device connected — check ADB connection")
 	}
 
 	// Stop app first if requested (default: true)
@@ -728,7 +729,7 @@ func (d *Driver) launchApp(step *flow.LaunchAppStep) *core.CommandResult {
 	// Clear state if requested
 	if step.ClearState {
 		if _, err := d.device.Shell("pm clear " + appID); err != nil {
-			return errorResult(err, fmt.Sprintf("Failed to clear app state: %v", err))
+			return errorResult(err, fmt.Sprintf("launchApp: failed to clear app state for '%s' — is the app installed?", appID))
 		}
 	}
 
@@ -737,57 +738,240 @@ func (d *Driver) launchApp(step *flow.LaunchAppStep) *core.CommandResult {
 	if len(permissions) == 0 {
 		permissions = map[string]string{"all": "allow"}
 	}
-	// Apply permissions - log warning but don't fail on errors
-	// Permission errors are common for non-runtime permissions
 	_ = d.applyPermissions(appID, permissions)
 
-	// Launch app - resolve launcher activity and use am start
-	// First, resolve the launcher activity using cmd package
-	resolveCmd := fmt.Sprintf("cmd package resolve-activity --brief %s | tail -n 1", appID)
-	launcherActivity, err := d.device.Shell(resolveCmd)
-	if err != nil || strings.Contains(launcherActivity, "No activity found") {
-		return errorResult(err, fmt.Sprintf("Failed to resolve launcher activity for %s", appID))
-	}
-	launcherActivity = strings.TrimSpace(launcherActivity)
-
-	// Build am start command
-	var cmd string
+	// Convert arguments for the server API
+	var arguments map[string]interface{}
 	if len(step.Arguments) > 0 {
-		// Build am start command with intent extras
-		cmd = fmt.Sprintf("am start -n %s", launcherActivity)
-		for key, value := range step.Arguments {
-			switch v := value.(type) {
-			case string:
-				cmd += fmt.Sprintf(" --es %s '%s'", key, v)
-			case int:
-				cmd += fmt.Sprintf(" --ei %s %d", key, v)
-			case int64:
-				cmd += fmt.Sprintf(" --ei %s %d", key, v)
-			case float64:
-				// YAML numbers can be float64
-				if v == float64(int(v)) {
-					cmd += fmt.Sprintf(" --ei %s %d", key, int(v))
-				} else {
-					cmd += fmt.Sprintf(" --ef %s %f", key, v)
+		arguments = step.Arguments
+	}
+
+	// Strategy 1: Use UIAutomator2 server endpoint (most reliable)
+	// Calls PackageManager.getLaunchIntentForPackage() on-device — works on all OEMs/versions
+	if d.client != nil {
+		if err := d.client.LaunchApp(appID, arguments); err != nil {
+			logger.Warn("launchApp via server failed for %s: %v — falling back to shell commands", appID, err)
+		} else {
+			time.Sleep(1 * time.Second)
+			return successResult(fmt.Sprintf("Launched app: %s", appID), nil)
+		}
+	}
+
+	// Strategy 2: Shell-based launch (fallback when server endpoint unavailable)
+	return d.launchAppViaShell(appID, arguments)
+}
+
+// launchAppViaShell launches an app using ADB shell commands.
+// Mirrors Appium's approach: detect API level, resolve activity, launch with proper flags.
+func (d *Driver) launchAppViaShell(appID string, arguments map[string]interface{}) *core.CommandResult {
+	apiLevel := d.getAPILevel()
+
+	// API < 24: monkey for simple launches (resolve-activity doesn't exist)
+	if apiLevel < 24 && len(arguments) == 0 {
+		return d.launchWithMonkey(appID)
+	}
+
+	// Resolve launcher activity
+	activity, err := d.resolveLauncherActivity(appID, apiLevel)
+	if err != nil {
+		// Final fallback: monkey for simple launches on any API level
+		if len(arguments) == 0 {
+			logger.Warn("launchApp: activity resolution failed for %s: %v — trying monkey", appID, err)
+			return d.launchWithMonkey(appID)
+		}
+		return errorResult(err, fmt.Sprintf(
+			"launchApp: cannot find launcher activity for '%s' — %v. "+
+				"Is the app installed? Check with: adb shell pm list packages | grep %s", appID, err, appID))
+	}
+
+	// Build am start / am start-activity command
+	// API >= 26 uses am start-activity, older uses am start (matches Appium)
+	amCmd := "am start"
+	if apiLevel >= 26 {
+		amCmd = "am start-activity"
+	}
+
+	cmd := fmt.Sprintf("%s -W -n %s -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f 0x10200000",
+		amCmd, activity)
+
+	// Add intent extras for arguments
+	for key, value := range arguments {
+		switch v := value.(type) {
+		case string:
+			cmd += fmt.Sprintf(" --es %s '%s'", key, v)
+		case int:
+			cmd += fmt.Sprintf(" --ei %s %d", key, v)
+		case int64:
+			cmd += fmt.Sprintf(" --ei %s %d", key, v)
+		case float64:
+			if v == float64(int(v)) {
+				cmd += fmt.Sprintf(" --ei %s %d", key, int(v))
+			} else {
+				cmd += fmt.Sprintf(" --ef %s %f", key, v)
+			}
+		case bool:
+			cmd += fmt.Sprintf(" --ez %s %t", key, v)
+		default:
+			cmd += fmt.Sprintf(" --es %s '%v'", key, v)
+		}
+	}
+
+	output, err := d.device.Shell(cmd)
+	if err != nil || strings.Contains(output, "Error") {
+		// Retry with dot prefix if activity class not found (Appium does this)
+		// e.g., "com.app/MainActivity" → "com.app/.MainActivity"
+		if strings.Contains(output, "does not exist") || strings.Contains(output, "ClassNotFoundException") {
+			dotActivity := d.addDotPrefix(activity)
+			if dotActivity != activity {
+				logger.Info("launchApp: retrying with dot-prefixed activity: %s", dotActivity)
+				retryCmd := strings.Replace(cmd, activity, dotActivity, 1)
+				if output2, err2 := d.device.Shell(retryCmd); err2 == nil && !strings.Contains(output2, "Error") {
+					return successResult(fmt.Sprintf("Launched app: %s", appID), nil)
 				}
-			case bool:
-				cmd += fmt.Sprintf(" --ez %s %t", key, v)
-			default:
-				cmd += fmt.Sprintf(" --es %s '%v'", key, v)
 			}
 		}
-	} else {
-		// Simple launch without arguments
-		cmd = fmt.Sprintf("am start -n %s", launcherActivity)
-	}
-	if _, err := d.device.Shell(cmd); err != nil {
-		return errorResult(err, fmt.Sprintf("Failed to launch app: %v", err))
-	}
 
-	// Wait for app to start
-	time.Sleep(1 * time.Second)
+		// Fall back to monkey for no-args case
+		if len(arguments) == 0 {
+			logger.Warn("launchApp: am start failed for %s: %v — trying monkey", appID, err)
+			return d.launchWithMonkey(appID)
+		}
+		errMsg := fmt.Sprintf("launchApp: '%s' failed for '%s' activity '%s'", amCmd, appID, activity)
+		if err != nil {
+			return errorResult(err, errMsg)
+		}
+		return errorResult(fmt.Errorf("am start returned error: %s", strings.TrimSpace(output)), errMsg)
+	}
 
 	return successResult(fmt.Sprintf("Launched app: %s", appID), nil)
+}
+
+// getAPILevel returns the device's Android API level, or 24 as a safe default.
+func (d *Driver) getAPILevel() int {
+	output, err := d.device.Shell("getprop ro.build.version.sdk")
+	if err != nil {
+		return 24
+	}
+	level, err := strconv.Atoi(strings.TrimSpace(output))
+	if err != nil {
+		return 24
+	}
+	return level
+}
+
+// resolveLauncherActivity resolves the launcher activity for a package.
+// Tries: cmd package resolve-activity → dumpsys package parsing.
+func (d *Driver) resolveLauncherActivity(appID string, apiLevel int) (string, error) {
+	// Strategy 1: cmd package resolve-activity (API >= 24)
+	if apiLevel >= 24 {
+		resolveCmd := fmt.Sprintf("cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER %s | tail -n 1", appID)
+		output, err := d.device.Shell(resolveCmd)
+		if err == nil {
+			activity := strings.TrimSpace(output)
+			if activity != "" &&
+				!strings.Contains(activity, "No activity found") &&
+				!strings.Contains(activity, "ResolverActivity") &&
+				strings.Contains(activity, "/") {
+				return activity, nil
+			}
+		}
+	}
+
+	// Strategy 2: dumpsys package parsing
+	return d.resolveLauncherFromDumpsys(appID)
+}
+
+// launchWithMonkey launches an app using the monkey command.
+// Universally reliable for simple launches (no arguments) on all Android versions.
+func (d *Driver) launchWithMonkey(appID string) *core.CommandResult {
+	monkeyCmd := fmt.Sprintf("monkey -p %s -c android.intent.category.LAUNCHER 1", appID)
+	output, err := d.device.Shell(monkeyCmd)
+	if err != nil || strings.Contains(output, "monkey aborted") {
+		errMsg := fmt.Sprintf("launchApp: all launch methods failed for '%s'. "+
+			"The app may not be installed or has no launcher activity. "+
+			"Check with: adb shell pm list packages | grep %s", appID, appID)
+		if err != nil {
+			return errorResult(err, errMsg)
+		}
+		return errorResult(fmt.Errorf("monkey aborted — no launchable activity for %s", appID), errMsg)
+	}
+	return successResult(fmt.Sprintf("Launched app: %s", appID), nil)
+}
+
+// addDotPrefix converts "com.app/MainActivity" to "com.app/.MainActivity".
+// Some apps declare activities without the leading dot; am start requires it.
+func (d *Driver) addDotPrefix(activity string) string {
+	parts := strings.SplitN(activity, "/", 2)
+	if len(parts) != 2 {
+		return activity
+	}
+	activityName := parts[1]
+	if strings.HasPrefix(activityName, ".") || strings.Contains(activityName, ".") {
+		return activity // Already has dot prefix or is fully qualified
+	}
+	return parts[0] + "/." + activityName
+}
+
+// resolveLauncherFromDumpsys parses `dumpsys package` output to find the MAIN/LAUNCHER activity.
+// Used as fallback when `cmd package resolve-activity` is unavailable (some OEMs strip it).
+func (d *Driver) resolveLauncherFromDumpsys(appID string) (string, error) {
+	output, err := d.device.Shell(fmt.Sprintf("dumpsys package %s", appID))
+	if err != nil {
+		return "", fmt.Errorf("dumpsys failed for %s: %w", appID, err)
+	}
+
+	// Look for MAIN/LAUNCHER activity in intent filter blocks.
+	// The format has activity lines like "com.example.app/.MainActivity filter abc123"
+	// followed by Action/Category lines within the filter block.
+	lines := strings.Split(output, "\n")
+	inFilter := false
+	hasMain := false
+	hasLauncher := false
+	var currentActivity string
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Match lines like "com.example.app/.MainActivity filter abc123"
+		if strings.HasPrefix(trimmed, appID) && strings.Contains(trimmed, "/") && strings.Contains(trimmed, "filter") {
+			// Check previous block before resetting
+			if inFilter && hasMain && hasLauncher && currentActivity != "" {
+				return currentActivity, nil
+			}
+			inFilter = true
+			hasMain = false
+			hasLauncher = false
+			parts := strings.Fields(trimmed)
+			if len(parts) > 0 {
+				currentActivity = parts[0]
+			}
+			continue
+		}
+
+		if inFilter {
+			if strings.Contains(trimmed, "android.intent.action.MAIN") {
+				hasMain = true
+			}
+			if strings.Contains(trimmed, "android.intent.category.LAUNCHER") {
+				hasLauncher = true
+			}
+			if trimmed == "" || (!strings.HasPrefix(trimmed, "Action:") &&
+				!strings.HasPrefix(trimmed, "Category:") &&
+				!strings.HasPrefix(trimmed, "\"")) {
+				if hasMain && hasLauncher && currentActivity != "" {
+					return currentActivity, nil
+				}
+				inFilter = false
+			}
+		}
+	}
+
+	// Check final block
+	if hasMain && hasLauncher && currentActivity != "" {
+		return currentActivity, nil
+	}
+
+	return "", fmt.Errorf("no MAIN/LAUNCHER activity found in dumpsys for %s", appID)
 }
 
 func (d *Driver) stopApp(step *flow.StopAppStep) *core.CommandResult {
