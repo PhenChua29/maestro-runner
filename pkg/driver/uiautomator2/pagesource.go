@@ -509,6 +509,30 @@ func DeepestMatchingElement(elements []*ParsedElement) *ParsedElement {
 	return deepest
 }
 
+// SelectByIndex picks an element from candidates using the selector's index.
+// If index is specified, picks the Nth candidate (supports negative indexing from end).
+// If index is out of range, defaults to first element.
+// If no index, returns DeepestMatchingElement (or first if nil).
+func SelectByIndex(candidates []*ParsedElement, index string) *ParsedElement {
+	if index != "" {
+		idx := 0
+		if i, err := strconv.Atoi(index); err == nil {
+			if i < 0 {
+				i = len(candidates) + i
+			}
+			if i >= 0 && i < len(candidates) {
+				idx = i
+			}
+		}
+		return candidates[idx]
+	}
+	selected := DeepestMatchingElement(candidates)
+	if selected == nil {
+		return candidates[0]
+	}
+	return selected
+}
+
 // SortClickableFirst reorders elements to prioritize clickable ones.
 // Clickable elements come first, maintaining relative order within each group.
 func SortClickableFirst(elements []*ParsedElement) []*ParsedElement {

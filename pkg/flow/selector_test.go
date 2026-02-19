@@ -599,6 +599,32 @@ func TestSelector_DescribeQuoted_InsideOf(t *testing.T) {
 	}
 }
 
+func TestSelector_HasNonZeroIndex(t *testing.T) {
+	tests := []struct {
+		name     string
+		index    string
+		expected bool
+	}{
+		{"empty index", "", false},
+		{"zero index", "0", false},
+		{"positive index", "1", true},
+		{"negative index", "-1", true},
+		{"large index", "99", true},
+		{"non-numeric index", "abc", false},
+		{"variable reference", "${idx}", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := Selector{Index: tt.index}
+			got := s.HasNonZeroIndex()
+			if got != tt.expected {
+				t.Errorf("HasNonZeroIndex()=%v, want %v for index=%q", got, tt.expected, tt.index)
+			}
+		})
+	}
+}
+
 func TestSelector_UnmarshalYAML_Invalid(t *testing.T) {
 	invalidYAML := `
 text: valid

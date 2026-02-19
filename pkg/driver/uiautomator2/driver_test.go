@@ -2869,4 +2869,84 @@ func TestFindElementMultipleStrategies(t *testing.T) {
 	}
 }
 
+// TestSimpleSelectorWithIndex tests that index works with simple text selectors (no relative modifier).
+func TestSimpleSelectorWithIndex(t *testing.T) {
+	pageSource := `<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy>
+    <node text="SuperRoach" bounds="[0,100][500,200]" class="android.widget.TextView" clickable="true" />
+    <node text="SuperRoach" bounds="[0,250][500,350]" class="android.widget.TextView" clickable="true" />
+    <node text="SuperRoach" bounds="[0,400][500,500]" class="android.widget.TextView" clickable="true" />
+</hierarchy>`
+
+	tests := []struct {
+		name      string
+		index     string
+		expectedY int // Y coordinate of expected match
+	}{
+		{"index 0 returns first", "0", 100},
+		{"index 1 returns second", "1", 250},
+		{"index 2 returns third", "2", 400},
+		{"index -1 returns last", "-1", 400},
+		{"index -2 returns second to last", "-2", 250},
+		{"index out of range defaults to first", "99", 100},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := setupMockServer(t, map[string]func(w http.ResponseWriter, r *http.Request){
+				"GET /source": func(w http.ResponseWriter, r *http.Request) {
+					writeJSON(w, map[string]interface{}{"value": pageSource})
+				},
+			})
+			defer server.Close()
+
+			client := newMockHTTPClient(server.URL)
+			driver := New(client.Client, nil, nil)
+
+			sel := flow.Selector{
+				Text:  "SuperRoach",
+				Index: tt.index,
+			}
+			_, info, err := driver.findElementByPageSourceOnce(sel)
+			if err != nil {
+				t.Fatalf("expected success, got error: %v", err)
+			}
+			if info.Bounds.Y != tt.expectedY {
+				t.Errorf("expected Y=%d for %s, got Y=%d", tt.expectedY, tt.index, info.Bounds.Y)
+			}
+		})
+	}
+}
+
+// TestSimpleSelectorWithIDAndIndex tests that index works with ID selectors.
+func TestSimpleSelectorWithIDAndIndex(t *testing.T) {
+	pageSource := `<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy>
+    <node text="Item 1" resource-id="com.app/item" bounds="[0,100][500,200]" class="android.widget.TextView" clickable="true" />
+    <node text="Item 2" resource-id="com.app/item" bounds="[0,250][500,350]" class="android.widget.TextView" clickable="true" />
+</hierarchy>`
+
+	server := setupMockServer(t, map[string]func(w http.ResponseWriter, r *http.Request){
+		"GET /source": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, map[string]interface{}{"value": pageSource})
+		},
+	})
+	defer server.Close()
+
+	client := newMockHTTPClient(server.URL)
+	driver := New(client.Client, nil, nil)
+
+	sel := flow.Selector{
+		ID:    "item",
+		Index: "1",
+	}
+	_, info, err := driver.findElementByPageSourceOnce(sel)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	if info.Bounds.Y != 250 {
+		t.Errorf("expected Y=250 for index 1, got Y=%d", info.Bounds.Y)
+	}
+}
+
 // Note: App lifecycle tests are in commands_test.go

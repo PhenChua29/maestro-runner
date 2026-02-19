@@ -3,7 +3,6 @@ package wda
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -246,9 +245,11 @@ func (d *Driver) findElementWithContext(ctx context.Context, sel flow.Selector) 
 			}
 			return nil, fmt.Errorf("element '%s' not found: %w", sel.Describe(), ctx.Err())
 		default:
-			// Try WDA strategies first
-			if info, err := d.findElementByWDA(sel); err == nil {
-				return info, nil
+			// Try WDA strategies first (skip for index selectors — WDA returns single match)
+			if !sel.HasNonZeroIndex() {
+				if info, err := d.findElementByWDA(sel); err == nil {
+					return info, nil
+				}
 			}
 
 			// Fallback to page source parsing
@@ -272,6 +273,12 @@ func (d *Driver) findElementForTap(sel flow.Selector, optional bool, stepTimeout
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		return d.findElementRelativeWithContext(ctx, sel)
+	}
+
+	// For index selectors, use standard findElement which routes to page source
+	// (WDA native API returns single match, can't pick Nth)
+	if sel.HasNonZeroIndex() {
+		return d.findElement(sel, optional, stepTimeoutMs)
 	}
 
 	// For ID-based selectors, use standard findElement (IDs are usually unique)
@@ -421,6 +428,11 @@ func (d *Driver) findElementOnce(sel flow.Selector) (*core.ElementInfo, error) {
 	}
 
 	if sel.Width > 0 || sel.Height > 0 {
+		return d.findElementByPageSourceOnce(sel)
+	}
+
+	// Handle index selectors via page source (need all matches to pick Nth)
+	if sel.HasNonZeroIndex() {
 		return d.findElementByPageSourceOnce(sel)
 	}
 
@@ -643,22 +655,7 @@ func (d *Driver) resolveRelativeSelector(sel flow.Selector, allElements []*Parse
 	// Prioritize clickable/interactive elements
 	candidates = SortClickableFirst(candidates)
 
-	// Select element
-	var selected *ParsedElement
-	if sel.Index != "" {
-		idx := 0
-		if i, err := strconv.Atoi(sel.Index); err == nil {
-			if i < 0 {
-				i = len(candidates) + i
-			}
-			if i >= 0 && i < len(candidates) {
-				idx = i
-			}
-		}
-		selected = candidates[idx]
-	} else {
-		selected = DeepestMatchingElement(candidates)
-	}
+	selected := SelectByIndex(candidates, sel.Index)
 
 	return &core.ElementInfo{
 		Text:    selected.Label,
@@ -699,10 +696,7 @@ func (d *Driver) findElementByPageSourceOnce(sel flow.Selector) (*core.ElementIn
 	// Prioritize clickable/interactive elements
 	candidates = SortClickableFirst(candidates)
 
-	selected := DeepestMatchingElement(candidates)
-	if selected == nil {
-		selected = candidates[0]
-	}
+	selected := SelectByIndex(candidates, sel.Index)
 
 	// If element isn't a clickable type, try to find a clickable parent
 	// This handles patterns where text labels aren't interactive but their containers are

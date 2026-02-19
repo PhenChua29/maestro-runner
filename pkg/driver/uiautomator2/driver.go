@@ -4,7 +4,6 @@ package uiautomator2
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -294,6 +293,11 @@ func (d *Driver) findElementForTap(sel flow.Selector, optional bool, stepTimeout
 		return d.findElementRelativeWithContext(ctx, sel)
 	}
 
+	// Index selectors need page source (native APIs return single match)
+	if sel.HasNonZeroIndex() {
+		return d.findElementWithOptions(sel, optional, stepTimeoutMs, true, false)
+	}
+
 	// For ID-based selectors, use standard UiAutomator approach (IDs are usually unique)
 	if sel.ID != "" {
 		return d.findElementWithOptions(sel, optional, stepTimeoutMs, true, false)
@@ -426,6 +430,11 @@ func (d *Driver) findElementWithContext(ctx context.Context, sel flow.Selector, 
 		return d.findElementByPageSourceWithContext(ctx, sel)
 	}
 
+	// Handle index selectors via page source (need all matches to pick Nth)
+	if sel.HasNonZeroIndex() {
+		return d.findElementByPageSourceWithContext(ctx, sel)
+	}
+
 	// Build strategies for UiAutomator
 	var strategies []LocatorStrategy
 	var err error
@@ -502,6 +511,11 @@ func (d *Driver) findElementOnce(sel flow.Selector) (*uiautomator2.Element, *cor
 
 	// Handle size selectors with single page source fetch
 	if sel.Width > 0 || sel.Height > 0 {
+		return d.findElementByPageSourceOnce(sel)
+	}
+
+	// Handle index selectors with single page source fetch (need all matches to pick Nth)
+	if sel.HasNonZeroIndex() {
 		return d.findElementByPageSourceOnce(sel)
 	}
 
@@ -766,22 +780,7 @@ func (d *Driver) resolveRelativeSelector(sel flow.Selector) (*core.ElementInfo, 
 	// Prioritize clickable elements
 	candidates = SortClickableFirst(candidates)
 
-	// Apply index if specified, otherwise use deepest matching element
-	var selected *ParsedElement
-	if sel.Index != "" {
-		idx := 0
-		if i, err := strconv.Atoi(sel.Index); err == nil {
-			if i < 0 {
-				i = len(candidates) + i
-			}
-			if i >= 0 && i < len(candidates) {
-				idx = i
-			}
-		}
-		selected = candidates[idx]
-	} else {
-		selected = DeepestMatchingElement(candidates)
-	}
+	selected := SelectByIndex(candidates, sel.Index)
 
 	// If element isn't clickable, try to find a clickable parent
 	// This handles React Native pattern where text nodes aren't clickable but containers are
@@ -870,22 +869,7 @@ func (d *Driver) findElementRelativeWithElements(sel flow.Selector, allElements 
 	// Prioritize clickable elements
 	candidates = SortClickableFirst(candidates)
 
-	// Apply index if specified, otherwise use deepest matching element
-	var selected *ParsedElement
-	if sel.Index != "" {
-		idx := 0
-		if i, err := strconv.Atoi(sel.Index); err == nil {
-			if i < 0 {
-				i = len(candidates) + i
-			}
-			if i >= 0 && i < len(candidates) {
-				idx = i
-			}
-		}
-		selected = candidates[idx]
-	} else {
-		selected = DeepestMatchingElement(candidates)
-	}
+	selected := SelectByIndex(candidates, sel.Index)
 
 	// If element isn't clickable, try to find a clickable parent
 	// This handles React Native pattern where text nodes aren't clickable but containers are
@@ -917,31 +901,28 @@ func (d *Driver) findElementByPageSourceOnce(sel flow.Selector) (*uiautomator2.E
 	candidates := FilterBySelector(allElements, sel)
 	candidates = SortClickableFirst(candidates)
 
-	if len(candidates) > 0 {
-		selected := DeepestMatchingElement(candidates)
-		if selected == nil {
-			selected = candidates[0]
-		}
-
-		// If element isn't clickable, try to find a clickable parent
-		// This handles React Native pattern where text nodes aren't clickable but containers are
-		clickableElem := GetClickableElement(selected)
-
-		info := &core.ElementInfo{
-			Text: selected.Text,
-			Bounds: core.Bounds{
-				X:      clickableElem.Bounds.X,
-				Y:      clickableElem.Bounds.Y,
-				Width:  clickableElem.Bounds.Width,
-				Height: clickableElem.Bounds.Height,
-			},
-			Enabled: selected.Enabled,
-			Visible: selected.Displayed,
-		}
-		return nil, info, nil
+	if len(candidates) == 0 {
+		return nil, nil, fmt.Errorf("no elements match selector")
 	}
 
-	return nil, nil, fmt.Errorf("no elements match selector")
+	selected := SelectByIndex(candidates, sel.Index)
+
+	// If element isn't clickable, try to find a clickable parent
+	// This handles React Native pattern where text nodes aren't clickable but containers are
+	clickableElem := GetClickableElement(selected)
+
+	info := &core.ElementInfo{
+		Text: selected.Text,
+		Bounds: core.Bounds{
+			X:      clickableElem.Bounds.X,
+			Y:      clickableElem.Bounds.Y,
+			Width:  clickableElem.Bounds.Width,
+			Height: clickableElem.Bounds.Height,
+		},
+		Enabled: selected.Enabled,
+		Visible: selected.Displayed,
+	}
+	return nil, info, nil
 }
 
 // findElementByPageSourceWithContext finds an element using page source with context-based timeout.
@@ -986,10 +967,7 @@ func (d *Driver) findElementByPageSourceOnceInternal(sel flow.Selector) (*core.E
 		return nil, fmt.Errorf("no elements match selector")
 	}
 
-	selected := DeepestMatchingElement(candidates)
-	if selected == nil {
-		selected = candidates[0]
-	}
+	selected := SelectByIndex(candidates, sel.Index)
 
 	// If element isn't clickable, try to find a clickable parent
 	// This handles React Native pattern where text nodes aren't clickable but containers are

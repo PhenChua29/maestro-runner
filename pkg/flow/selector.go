@@ -1,7 +1,11 @@
 // Package flow handles parsing and representation of Maestro YAML flow files.
 package flow
 
-import "gopkg.in/yaml.v3"
+import (
+	"strconv"
+
+	"gopkg.in/yaml.v3"
+)
 
 // Selector represents element selection criteria.
 // This mirrors Maestro's YamlElementSelector exactly.
@@ -168,6 +172,17 @@ func (s *Selector) HasRelativeSelector() bool {
 		s.ContainsChild != nil ||
 		len(s.ContainsDescendants) > 0 ||
 		s.InsideOf != nil
+}
+
+// HasNonZeroIndex returns true if the selector has an index that is not zero.
+// Used to route element finding through page source (which returns all matches)
+// instead of native APIs (which return a single match).
+func (s *Selector) HasNonZeroIndex() bool {
+	if s.Index == "" {
+		return false
+	}
+	idx, err := strconv.Atoi(s.Index)
+	return err == nil && idx != 0
 }
 
 // Describe returns a human-readable description.

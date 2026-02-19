@@ -5737,6 +5737,104 @@ func TestFindElementByWDAWithIDNotFound(t *testing.T) {
 	}
 }
 
+// TestSimpleSelectorWithIndex tests that index works with simple text selectors (no relative modifier).
+func TestSimpleSelectorWithIndex(t *testing.T) {
+	pageSourceXML := `<?xml version="1.0" encoding="UTF-8"?>
+<AppiumAUT>
+  <XCUIElementTypeApplication type="XCUIElementTypeApplication" name="TestApp" enabled="true" visible="true" x="0" y="0" width="390" height="844">
+    <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" name="SuperRoach" label="SuperRoach" enabled="true" visible="true" x="0" y="100" width="390" height="50"/>
+    <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" name="SuperRoach" label="SuperRoach" enabled="true" visible="true" x="0" y="250" width="390" height="50"/>
+    <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" name="SuperRoach" label="SuperRoach" enabled="true" visible="true" x="0" y="400" width="390" height="50"/>
+  </XCUIElementTypeApplication>
+</AppiumAUT>`
+
+	tests := []struct {
+		name      string
+		index     string
+		expectedY int
+	}{
+		{"index 0 returns first", "0", 100},
+		{"index 1 returns second", "1", 250},
+		{"index 2 returns third", "2", 400},
+		{"index -1 returns last", "-1", 400},
+		{"index -2 returns second to last", "-2", 250},
+		{"index out of range defaults to first", "99", 100},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				path := r.URL.Path
+
+				if strings.HasSuffix(path, "/source") {
+					jsonResponse(w, map[string]interface{}{"value": pageSourceXML})
+					return
+				}
+				if strings.HasSuffix(path, "/element") && r.Method == "POST" {
+					// Return error to force page source fallback
+					w.WriteHeader(http.StatusNotFound)
+					jsonResponse(w, map[string]interface{}{
+						"value": map[string]interface{}{"error": "no such element"},
+					})
+					return
+				}
+				jsonResponse(w, map[string]interface{}{"status": 0})
+			}))
+			defer server.Close()
+			driver := createTestDriver(server)
+
+			sel := flow.Selector{
+				Text:  "SuperRoach",
+				Index: tt.index,
+			}
+			info, err := driver.findElementByPageSourceOnce(sel)
+			if err != nil {
+				t.Fatalf("expected success, got error: %v", err)
+			}
+			if info.Bounds.Y != tt.expectedY {
+				t.Errorf("expected Y=%d for %s, got Y=%d", tt.expectedY, tt.index, info.Bounds.Y)
+			}
+		})
+	}
+}
+
+// TestSimpleSelectorWithIDAndIndex tests that index works with ID selectors.
+func TestSimpleSelectorWithIDAndIndex(t *testing.T) {
+	pageSourceXML := `<?xml version="1.0" encoding="UTF-8"?>
+<AppiumAUT>
+  <XCUIElementTypeApplication type="XCUIElementTypeApplication" name="TestApp" enabled="true" visible="true" x="0" y="0" width="390" height="844">
+    <XCUIElementTypeButton type="XCUIElementTypeButton" name="itemBtn" label="Item 1" enabled="true" visible="true" x="0" y="100" width="390" height="50"/>
+    <XCUIElementTypeButton type="XCUIElementTypeButton" name="itemBtn" label="Item 2" enabled="true" visible="true" x="0" y="250" width="390" height="50"/>
+  </XCUIElementTypeApplication>
+</AppiumAUT>`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+
+		if strings.HasSuffix(path, "/source") {
+			jsonResponse(w, map[string]interface{}{"value": pageSourceXML})
+			return
+		}
+		jsonResponse(w, map[string]interface{}{"status": 0})
+	}))
+	defer server.Close()
+	driver := createTestDriver(server)
+
+	sel := flow.Selector{
+		ID:    "itemBtn",
+		Index: "1",
+	}
+	info, err := driver.findElementByPageSourceOnce(sel)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	if info.Bounds.Y != 250 {
+		t.Errorf("expected Y=250 for index 1, got Y=%d", info.Bounds.Y)
+	}
+}
+
 // TestDriverAlertActionField tests that alertAction field can be set on Driver.
 func TestDriverAlertActionField(t *testing.T) {
 	client := &Client{}

@@ -538,3 +538,36 @@ func TestParsePageSourceWithElementAttributes(t *testing.T) {
 		t.Error("Expected focused=true")
 	}
 }
+
+func TestSelectByIndex(t *testing.T) {
+	candidates := []*ParsedElement{
+		{Label: "First", Depth: 1},
+		{Label: "Second", Depth: 3}, // deepest
+		{Label: "Third", Depth: 2},
+	}
+
+	tests := []struct {
+		name     string
+		index    string
+		expected string
+	}{
+		{"no index returns deepest", "", "Second"},
+		{"index 0 returns first", "0", "First"},
+		{"index 1 returns second", "1", "Second"},
+		{"index 2 returns third", "2", "Third"},
+		{"index -1 returns last", "-1", "Third"},
+		{"index -2 returns second", "-2", "Second"},
+		{"out of range defaults to first", "99", "First"},
+		{"negative out of range defaults to first", "-99", "First"},
+		{"non-numeric defaults to first", "abc", "First"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SelectByIndex(candidates, tt.index)
+			if got.Label != tt.expected {
+				t.Errorf("SelectByIndex(index=%q) = %q, want %q", tt.index, got.Label, tt.expected)
+			}
+		})
+	}
+}

@@ -3,7 +3,6 @@ package appium
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -219,6 +218,11 @@ func (d *Driver) findElement(sel flow.Selector, timeout time.Duration) (*core.El
 		return d.findElementRelative(sel, timeout)
 	}
 
+	// Index selectors need page source (native APIs return single match)
+	if sel.HasNonZeroIndex() {
+		return d.findElementByPageSourceWithPolling(sel, timeout)
+	}
+
 	// Simple selector - try Appium's native find
 	deadline := time.Now().Add(timeout)
 
@@ -364,15 +368,30 @@ func (d *Driver) findElementByPageSource(sel flow.Selector) (*core.ElementInfo, 
 		return nil, fmt.Errorf("no elements match selector")
 	}
 
-	// Prioritize clickable, then deepest
+	// Prioritize clickable, then select by index or deepest
 	candidates = SortClickableFirst(candidates)
-	selected := DeepestMatchingElement(candidates)
+	selected := SelectByIndex(candidates, sel.Index)
 
 	// If element isn't clickable, try to find a clickable parent
 	// This handles React Native pattern where text nodes aren't clickable but containers are
 	clickableElem := GetClickableElement(selected)
 
 	return elementToInfoWithClickable(selected, clickableElem, platform), nil
+}
+
+// findElementByPageSourceWithPolling finds element by page source with deadline-based polling.
+func (d *Driver) findElementByPageSourceWithPolling(sel flow.Selector, timeout time.Duration) (*core.ElementInfo, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		info, err := d.findElementByPageSource(sel)
+		if err == nil {
+			return info, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, err
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 // findElementForTap finds an element for tap commands, prioritizing clickable elements.
@@ -390,6 +409,11 @@ func (d *Driver) findElementForTap(sel flow.Selector, timeout time.Duration) (*c
 	// For relative selectors, use page source (position calculation required)
 	if sel.HasRelativeSelector() {
 		return d.findElementRelative(sel, timeout)
+	}
+
+	// Index selectors need page source (native APIs return single match)
+	if sel.HasNonZeroIndex() {
+		return d.findElementByPageSourceWithPolling(sel, timeout)
 	}
 
 	deadline := time.Now().Add(timeout)
@@ -496,6 +520,9 @@ func (d *Driver) findElementRelative(sel flow.Selector, timeout time.Duration) (
 func (d *Driver) findElementOnce(sel flow.Selector) (*core.ElementInfo, error) {
 	if sel.HasRelativeSelector() {
 		return d.findElementRelativeOnce(sel)
+	}
+	if sel.HasNonZeroIndex() {
+		return d.findElementByPageSource(sel)
 	}
 	return d.findElementDirect(sel)
 }
@@ -618,25 +645,7 @@ func (d *Driver) findElementRelativeWithElements(sel flow.Selector, allElements 
 		return nil, fmt.Errorf("no candidates after sorting")
 	}
 
-	var selected *ParsedElement
-	if sel.Index != "" {
-		idx := 0
-		if i, err := strconv.Atoi(sel.Index); err == nil {
-			if i < 0 {
-				i = len(candidates) + i
-			}
-			if i >= 0 && i < len(candidates) {
-				idx = i
-			}
-		}
-		selected = candidates[idx]
-	} else {
-		selected = DeepestMatchingElement(candidates)
-	}
-
-	if selected == nil {
-		return nil, fmt.Errorf("no element selected")
-	}
+	selected := SelectByIndex(candidates, sel.Index)
 
 	// If element isn't clickable, try to find a clickable parent
 	// This handles React Native pattern where text nodes aren't clickable but containers are
