@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/devicelab-dev/maestro-runner/pkg/core"
@@ -602,52 +603,111 @@ func (d *Driver) launchApp(step *flow.LaunchAppStep) *core.CommandResult {
 		return errorResult(fmt.Errorf("bundleID required"), "Bundle ID is required for launchApp")
 	}
 
-	// Clear state if requested (uninstall + reinstall)
+	// Clear state and apply permissions
+	// On simulator: overlap uninstall+install with permission resets for speed
+	permissions := step.Permissions
+	if d.udid != "" && len(permissions) == 0 {
+		permissions = map[string]string{"all": "allow"}
+	}
+	needPerms := d.udid != "" && d.info.IsSimulator && !hasAllValue(permissions, "unset")
+
 	if step.ClearState {
 		_ = d.client.TerminateApp(bundleID)
-		if result := d.clearAppState(bundleID); !result.Success {
-			return result
-		}
-	}
 
-	// Apply permissions (default: all allow, like Maestro)
-	if d.udid != "" {
-		permissions := step.Permissions
-		if len(permissions) == 0 {
-			permissions = map[string]string{"all": "allow"}
-		}
+		if needPerms {
+			// Run uninstall+install and permission resets concurrently
+			allPerms := getIOSPermissions()
+			var wg sync.WaitGroup
+			var clearResult *core.CommandResult
 
-		if d.info.IsSimulator {
-			// Simulator permission handling via simctl privacy:
-			//   "allow"  → reset + grant (no dialog, app gets .authorized)
-			//   "deny"   → reset + revoke (no dialog, app gets .denied)
-			//   "unset"  → skip everything (hands off, don't touch permissions)
-			if !hasAllValue(permissions, "unset") {
-				// Reset all permissions to clean slate ("not determined")
-				for _, perm := range getIOSPermissions() {
-					_ = d.resetIOSPermission(bundleID, perm)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				clearResult = d.clearAppState(bundleID)
+			}()
+
+			wg.Add(len(allPerms))
+			for _, perm := range allPerms {
+				go func(p string) {
+					defer wg.Done()
+					_ = d.resetIOSPermission(bundleID, p)
+				}(perm)
+			}
+			wg.Wait()
+
+			if clearResult != nil && !clearResult.Success {
+				return clearResult
+			}
+
+			// Grant permissions after install completes
+			var applyList []struct{ perm, action string }
+			for name, value := range permissions {
+				lower := strings.ToLower(value)
+				if lower != "allow" && lower != "deny" {
+					continue
 				}
-				// Apply allow/deny permissions; unspecified stay as "not determined"
-				for name, value := range permissions {
-					lower := strings.ToLower(value)
-					if lower != "allow" && lower != "deny" {
-						continue
+				if strings.ToLower(name) == "all" {
+					for _, perm := range allPerms {
+						applyList = append(applyList, struct{ perm, action string }{perm, lower})
 					}
-					if strings.ToLower(name) == "all" {
-						for _, perm := range getIOSPermissions() {
-							_ = d.applyIOSPermission(bundleID, perm, lower)
-						}
-					} else {
-						for _, perm := range resolveIOSPermissionShortcut(name) {
-							_ = d.applyIOSPermission(bundleID, perm, lower)
-						}
+				} else {
+					for _, perm := range resolveIOSPermissionShortcut(name) {
+						applyList = append(applyList, struct{ perm, action string }{perm, lower})
 					}
 				}
 			}
+			wg.Add(len(applyList))
+			for _, item := range applyList {
+				go func(p, a string) {
+					defer wg.Done()
+					_ = d.applyIOSPermission(bundleID, p, a)
+				}(item.perm, item.action)
+			}
+			wg.Wait()
+		} else {
+			if result := d.clearAppState(bundleID); !result.Success {
+				return result
+			}
 		}
-		// Set WDA auto-alert handling for permissions that simctl can't grant
-		// (e.g. notifications). On real devices this is the only mechanism;
-		// on simulators it's a fallback alongside simctl privacy.
+	} else if needPerms {
+		allPerms := getIOSPermissions()
+		var wg sync.WaitGroup
+		wg.Add(len(allPerms))
+		for _, perm := range allPerms {
+			go func(p string) {
+				defer wg.Done()
+				_ = d.resetIOSPermission(bundleID, p)
+			}(perm)
+		}
+		wg.Wait()
+
+		var applyList []struct{ perm, action string }
+		for name, value := range permissions {
+			lower := strings.ToLower(value)
+			if lower != "allow" && lower != "deny" {
+				continue
+			}
+			if strings.ToLower(name) == "all" {
+				for _, perm := range allPerms {
+					applyList = append(applyList, struct{ perm, action string }{perm, lower})
+				}
+			} else {
+				for _, perm := range resolveIOSPermissionShortcut(name) {
+					applyList = append(applyList, struct{ perm, action string }{perm, lower})
+				}
+			}
+		}
+		wg.Add(len(applyList))
+		for _, item := range applyList {
+			go func(p, a string) {
+				defer wg.Done()
+				_ = d.applyIOSPermission(bundleID, p, a)
+			}(item.perm, item.action)
+		}
+		wg.Wait()
+	}
+
+	if d.udid != "" {
 		d.alertAction = resolveAlertAction(permissions)
 	}
 
@@ -706,7 +766,6 @@ func (d *Driver) launchApp(step *flow.LaunchAppStep) *core.CommandResult {
 		}
 		// If no arguments/environment, the session creation already launched the app
 		if !hasArgs {
-			time.Sleep(time.Second) // Brief wait for app to start
 			return successResult(fmt.Sprintf("Launched app: %s", bundleID), nil)
 		}
 		// Fall through to LaunchAppWithArgs to relaunch with arguments
@@ -722,8 +781,6 @@ func (d *Driver) launchApp(step *flow.LaunchAppStep) *core.CommandResult {
 	if err := d.client.LaunchAppWithArgs(bundleID, launchArgs, launchEnv); err != nil {
 		return errorResult(err, fmt.Sprintf("Failed to launch app: %s", bundleID))
 	}
-
-	time.Sleep(time.Second) // Brief wait for app to start
 
 	return successResult(fmt.Sprintf("Launched app: %s", bundleID), nil)
 }
