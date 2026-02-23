@@ -1804,3 +1804,69 @@ func TestScriptEngine_EvalCondition_UndefinedVariable(t *testing.T) {
 		t.Error("EvalCondition(SOME_UNDEFINED_VAR) should return false for undefined variable")
 	}
 }
+
+// ===========================================
+// ExpandStep: RunFlowStep
+// ===========================================
+
+func TestScriptEngine_ExpandStep_RunFlowStep(t *testing.T) {
+	se := NewScriptEngine()
+	defer se.Close()
+
+	se.SetVariable("FLOW_FILE", "auth.yaml")
+	se.SetVariable("BUTTON_ID", "profile_button")
+	se.SetVariable("LABEL_TEXT", "Welcome")
+	se.SetVariable("ENV_VAL", "production")
+
+	step := &flow.RunFlowStep{
+		File: "${FLOW_FILE}",
+		When: &flow.Condition{
+			Visible:    &flow.Selector{ID: "${BUTTON_ID}"},
+			NotVisible: &flow.Selector{Text: "${LABEL_TEXT}"},
+			Script:     "${BUTTON_ID} !== undefined",
+			Platform:   "${ENV_VAL}",
+		},
+		Env: map[string]string{
+			"MODE": "${ENV_VAL}",
+		},
+	}
+
+	se.ExpandStep(step)
+
+	if step.File != "auth.yaml" {
+		t.Errorf("File = %q, want %q", step.File, "auth.yaml")
+	}
+	if step.When.Visible.ID != "profile_button" {
+		t.Errorf("When.Visible.ID = %q, want %q", step.When.Visible.ID, "profile_button")
+	}
+	if step.When.NotVisible.Text != "Welcome" {
+		t.Errorf("When.NotVisible.Text = %q, want %q", step.When.NotVisible.Text, "Welcome")
+	}
+	if step.When.Script != "profile_button !== undefined" {
+		t.Errorf("When.Script = %q, want %q", step.When.Script, "profile_button !== undefined")
+	}
+	if step.When.Platform != "production" {
+		t.Errorf("When.Platform = %q, want %q", step.When.Platform, "production")
+	}
+	if step.Env["MODE"] != "production" {
+		t.Errorf("Env[MODE] = %q, want %q", step.Env["MODE"], "production")
+	}
+}
+
+func TestScriptEngine_ExpandStep_RunFlowStep_NilWhen(t *testing.T) {
+	se := NewScriptEngine()
+	defer se.Close()
+
+	se.SetVariable("FILE", "test.yaml")
+
+	// RunFlowStep with no When condition should not panic
+	step := &flow.RunFlowStep{
+		File: "${FILE}",
+	}
+
+	se.ExpandStep(step)
+
+	if step.File != "test.yaml" {
+		t.Errorf("File = %q, want %q", step.File, "test.yaml")
+	}
+}

@@ -530,6 +530,25 @@ func (se *ScriptEngine) ExpandStep(step flow.Step) {
 		s.Link = se.ExpandVariables(s.Link)
 	case *flow.PressKeyStep:
 		s.Key = se.ExpandVariables(s.Key)
+	case *flow.RunFlowStep:
+		s.File = se.ExpandVariables(s.File)
+		if s.When != nil {
+			if s.When.Visible != nil {
+				s.When.Visible = se.expandSelector(s.When.Visible)
+			}
+			if s.When.NotVisible != nil {
+				s.When.NotVisible = se.expandSelector(s.When.NotVisible)
+			}
+			if s.When.Script != "" {
+				s.When.Script = se.ExpandVariables(s.When.Script)
+			}
+			if s.When.Platform != "" {
+				s.When.Platform = se.ExpandVariables(s.When.Platform)
+			}
+		}
+		for k, v := range s.Env {
+			s.Env[k] = se.ExpandVariables(v)
+		}
 	}
 }
 
