@@ -17,6 +17,9 @@ type AndroidDevice struct {
 	adbPath    string
 	socketPath string // Unix socket path for UIAutomator2 (Linux/Mac)
 	localPort  int    // TCP port for UIAutomator2 (Windows)
+
+	driverSocketPath string // Unix socket path for DeviceLab Android Driver (Linux/Mac)
+	driverLocalPort  int    // TCP port for DeviceLab Android Driver (Windows)
 }
 
 // DeviceInfo contains basic device information.

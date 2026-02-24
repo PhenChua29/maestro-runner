@@ -7,11 +7,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/devicelab-dev/maestro-runner/pkg/core"
 	"github.com/devicelab-dev/maestro-runner/pkg/device"
+	devicelabdriver "github.com/devicelab-dev/maestro-runner/pkg/driver/devicelab"
 	uia2driver "github.com/devicelab-dev/maestro-runner/pkg/driver/uiautomator2"
 	"github.com/devicelab-dev/maestro-runner/pkg/logger"
+	"github.com/devicelab-dev/maestro-runner/pkg/maestro"
 	"github.com/devicelab-dev/maestro-runner/pkg/uiautomator2"
 )
 
@@ -55,12 +58,21 @@ func CreateAndroidDriver(cfg *RunConfig) (core.Driver, func(), error) {
 		info.Brand, info.Model, info.SDK, info.Serial, info.IsEmulator)
 	printSetupSuccess(fmt.Sprintf("Connected to %s %s (SDK %s)", info.Brand, info.Model, info.SDK))
 
-	// 2. Check if device is already in use (for UIAutomator2 driver)
-	// Do this BEFORE StartUIAutomator2 which would kill the other instance's server
-	if driverType == "uiautomator2" {
+	// 2. Check if device is already in use
+	// Do this BEFORE starting servers which would kill the other instance's server
+	switch driverType {
+	case "uiautomator2":
 		socketPath := dev.DefaultSocketPath()
 		if device.IsOwnerAlive(socketPath) {
 			return nil, nil, fmt.Errorf("device %s is already in use\n"+
+				"Another maestro-runner instance may be using this device.\n"+
+				"Socket: %s\n"+
+				"Hint: Wait for it to finish or use a different device", dev.Serial(), socketPath)
+		}
+	case "devicelab":
+		socketPath := dev.DeviceLabDriverSocketPath()
+		if device.IsOwnerAlive(socketPath) {
+			return nil, nil, fmt.Errorf("device %s is already in use by DeviceLab driver\n"+
 				"Another maestro-runner instance may be using this device.\n"+
 				"Socket: %s\n"+
 				"Hint: Wait for it to finish or use a different device", dev.Serial(), socketPath)
@@ -83,10 +95,12 @@ func CreateAndroidDriver(cfg *RunConfig) (core.Driver, func(), error) {
 	switch driverType {
 	case "uiautomator2":
 		return createUIAutomator2Driver(cfg, dev, info)
+	case "devicelab":
+		return createDeviceLabDriver(cfg, dev, info)
 	case "appium":
 		return createAppiumDriver(cfg)
 	default:
-		return nil, nil, fmt.Errorf("unsupported driver: %s (use uiautomator2 or appium)", driverType)
+		return nil, nil, fmt.Errorf("unsupported driver: %s (use uiautomator2, devicelab, or appium)", driverType)
 	}
 }
 
@@ -164,6 +178,13 @@ func createUIAutomator2Driver(cfg *RunConfig, dev *device.AndroidDevice, info de
 		"waitForIdleTimeout": cfg.WaitForIdleTimeout,
 	}); err != nil {
 		fmt.Printf("  %s⚠%s Warning: failed to set appium settings: %v\n", color(colorYellow), color(colorReset), err)
+	}
+
+	// Enable server-side element polling (implicitWait=100ms).
+	// Each FindElement call polls on-device for up to 100ms before returning,
+	// catching elements that appear mid-animation without extra round-trips.
+	if err := client.SetImplicitWait(100 * time.Millisecond); err != nil {
+		fmt.Printf("  %s⚠%s Warning: failed to set implicit wait: %v\n", color(colorYellow), color(colorReset), err)
 	}
 
 	// 5. Query app version from device if appId is known
@@ -267,4 +288,148 @@ func autoDetectAndroidDevices(count int) ([]string, error) {
 	}
 
 	return devices, nil
+}
+
+// createDeviceLabDriver creates a DeviceLab Android Driver (WebSocket-based).
+// Uses the same uiautomator2.Driver but with a WebSocket transport instead of HTTP.
+func createDeviceLabDriver(cfg *RunConfig, dev *device.AndroidDevice, info device.DeviceInfo) (core.Driver, func(), error) {
+	// 1. Check/install DeviceLab driver APKs (always check for updates)
+	apksDir, err := getDriversDir("android")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to locate drivers directory: %w", err)
+	}
+	if err := dev.InstallDeviceLabDriver(apksDir); err != nil {
+		return nil, nil, fmt.Errorf("install DeviceLab driver: %w", err)
+	}
+
+	// 2. Start DeviceLab Android Driver
+	printSetupStep("Starting DeviceLab driver...")
+	logger.Info("Starting DeviceLab driver on device %s", dev.Serial())
+	driverCfg := device.DefaultDeviceLabDriverConfig()
+	if err := dev.StartDeviceLabDriver(driverCfg); err != nil {
+		logger.Error("Failed to start DeviceLab driver: %v", err)
+		return nil, nil, fmt.Errorf("start DeviceLab driver: %w", err)
+	}
+
+	if dev.DeviceLabDriverSocket() != "" {
+		fmt.Printf("  → Socket: %s\n", dev.DeviceLabDriverSocket())
+	} else if dev.DeviceLabDriverLocalPort() != 0 {
+		fmt.Printf("  → Port: %d\n", dev.DeviceLabDriverLocalPort())
+	}
+
+	if !dev.IsDeviceLabDriverRunning() {
+		return nil, nil, fmt.Errorf("DeviceLab driver not responding after start")
+	}
+	printSetupSuccess("DeviceLab driver started")
+
+	// 3. Create WebSocket client
+	var wsClient *maestro.Client
+	if dev.DeviceLabDriverSocket() != "" {
+		wsClient = maestro.NewClient(dev.DeviceLabDriverSocket())
+	} else {
+		wsClient = maestro.NewClientTCP(dev.DeviceLabDriverLocalPort())
+	}
+
+	if cfg.OutputDir != "" {
+		wsClient.SetLogPath(filepath.Join(cfg.OutputDir, "client.log"))
+	}
+
+	printSetupStep("Connecting WebSocket...")
+	if err := wsClient.Connect(); err != nil {
+		logger.Error("Failed to connect WebSocket: %v", err)
+		if stopErr := dev.StopDeviceLabDriver(); stopErr != nil {
+			logger.Warn("failed to stop DeviceLab driver after connect failure: %v", stopErr)
+		}
+		return nil, nil, fmt.Errorf("connect WebSocket: %w", err)
+	}
+	printSetupSuccess("WebSocket connected")
+
+	// 4. Create adapter and session
+	adapter := maestro.NewAdapter(wsClient)
+
+	printSetupStep("Creating session...")
+	logger.Info("Creating DeviceLab driver session")
+	session, err := adapter.CreateSession()
+	if err != nil {
+		logger.Error("Failed to create session: %v", err)
+		wsClient.Close()
+		if stopErr := dev.StopDeviceLabDriver(); stopErr != nil {
+			logger.Warn("failed to stop DeviceLab driver after session failure: %v", stopErr)
+		}
+		return nil, nil, fmt.Errorf("create session: %w", err)
+	}
+	logger.Info("Session created: %s", session.SessionID)
+	printSetupSuccess("Session created")
+
+	// Set waitForIdle timeout
+	if err := adapter.SetAppiumSettings(map[string]interface{}{
+		"waitForIdleTimeout": cfg.WaitForIdleTimeout,
+	}); err != nil {
+		fmt.Printf("  %s⚠%s Warning: failed to set driver settings: %v\n", color(colorYellow), color(colorReset), err)
+	}
+
+	// Enable server-side element polling (implicitWait=100ms).
+	// Each FindElement call polls on-device for up to 100ms before returning,
+	// catching elements that appear mid-animation without extra round-trips.
+	if err := adapter.SetImplicitWait(100 * time.Millisecond); err != nil {
+		fmt.Printf("  %s⚠%s Warning: failed to set implicit wait: %v\n", color(colorYellow), color(colorReset), err)
+	}
+
+	// 5. Query app version
+	appVersion := ""
+	if cfg.AppID != "" {
+		appVersion = dev.GetAppVersion(cfg.AppID)
+	}
+
+	// 6. Get screen size from session device info
+	var screenW, screenH int
+	if session.DeviceInfo.DisplaySize != "" {
+		parts := strings.Split(session.DeviceInfo.DisplaySize, "x")
+		if len(parts) == 2 {
+			screenW, _ = strconv.Atoi(parts[0])
+			screenH, _ = strconv.Atoi(parts[1])
+		}
+	}
+	if screenW == 0 || screenH == 0 {
+		// Fallback: wm size
+		if output, err := dev.Shell("wm size"); err == nil {
+			output = strings.TrimSpace(output)
+			if idx := strings.LastIndex(output, ":"); idx != -1 {
+				output = strings.TrimSpace(output[idx+1:])
+			}
+			parts := strings.Split(output, "x")
+			if len(parts) == 2 {
+				screenW, _ = strconv.Atoi(strings.TrimSpace(parts[0]))
+				screenH, _ = strconv.Atoi(strings.TrimSpace(parts[1]))
+			}
+		}
+	}
+
+	// 7. Create driver (DeviceLab-specific driver with RPC support)
+	platformInfo := &core.PlatformInfo{
+		Platform:     "android",
+		DeviceID:     info.Serial,
+		DeviceName:   fmt.Sprintf("%s %s", info.Brand, info.Model),
+		OSVersion:    info.SDK,
+		IsSimulator:  info.IsEmulator,
+		ScreenWidth:  screenW,
+		ScreenHeight: screenH,
+		AppID:        cfg.AppID,
+		AppVersion:   appVersion,
+	}
+	driver := devicelabdriver.New(adapter, platformInfo, dev)
+
+	cleanup := func() {
+		if err := adapter.DeleteSession(); err != nil {
+			logger.Debug("failed to delete session during cleanup: %v", err)
+		}
+		if err := wsClient.Close(); err != nil {
+			logger.Debug("failed to close WebSocket client during cleanup: %v", err)
+		}
+		if err := dev.StopDeviceLabDriver(); err != nil {
+			logger.Warn("failed to stop DeviceLab driver during cleanup: %v", err)
+		}
+	}
+
+	return driver, cleanup, nil
 }

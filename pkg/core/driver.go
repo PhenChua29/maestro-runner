@@ -160,6 +160,27 @@ const (
 	ExecutedByRunner ExecutedBy = "runner" // Executed by the Runner (JS, subflow, etc.)
 )
 
+// WebViewInfo describes the WebView/browser context detected on screen.
+type WebViewInfo struct {
+	Type        string // "webview" or "browser"
+	PackageName string // e.g., "com.wdiodemoapp" or "com.android.chrome"
+	ClassName   string // e.g., "android.webkit.WebView" (only for type=webview)
+}
+
+// AppLifecycleManager is an optional interface drivers can implement
+// to handle app lifecycle operations (force-stop, clear data) on-device
+// instead of via ADB shell.
+type AppLifecycleManager interface {
+	ForceStop(appID string) error
+	ClearAppData(appID string) error
+}
+
+// WebViewDetector is an optional interface drivers can implement
+// to detect if the current screen contains a WebView or browser.
+type WebViewDetector interface {
+	DetectWebView() (*WebViewInfo, error)
+}
+
 // LogEntry represents a single log message captured during execution
 type LogEntry struct {
 	Timestamp time.Time `json:"timestamp"`

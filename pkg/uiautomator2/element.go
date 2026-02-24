@@ -9,7 +9,39 @@ import (
 type Element struct {
 	id     string
 	client *Client
+
+	// Cached data — when set, methods return these without HTTP calls.
+	// Used by the Maestro WebSocket adapter to pre-populate element data
+	// from a single round-trip, avoiding extra HTTP calls for text/rect.
+	cachedText *string
+	cachedRect *ElementRect
+
+	// Action callbacks — when set, used instead of HTTP calls.
+	// Used by the Maestro WebSocket adapter to route actions through WebSocket.
+	clickFunc    func() error
+	clearFunc    func() error
+	sendKeysFunc func(text string) error
 }
+
+// NewCachedElement creates an element with pre-populated text and bounds.
+// Used by the Maestro WebSocket adapter to avoid extra round-trips.
+// Call SetClickFunc/SetClearFunc/SetSendKeysFunc to wire action callbacks.
+func NewCachedElement(id string, text string, rect ElementRect) *Element {
+	return &Element{
+		id:         id,
+		cachedText: &text,
+		cachedRect: &rect,
+	}
+}
+
+// SetClickFunc sets the callback for Click().
+func (e *Element) SetClickFunc(f func() error) { e.clickFunc = f }
+
+// SetClearFunc sets the callback for Clear().
+func (e *Element) SetClearFunc(f func() error) { e.clearFunc = f }
+
+// SetSendKeysFunc sets the callback for SendKeys().
+func (e *Element) SetSendKeysFunc(f func(text string) error) { e.sendKeysFunc = f }
 
 // ID returns the element ID.
 func (e *Element) ID() string {
@@ -81,6 +113,27 @@ func (c *Client) FindElements(strategy, selector string) ([]*Element, error) {
 	return elements, nil
 }
 
+// FindAndClick finds an element and clicks it (2 HTTP calls for native client).
+func (c *Client) FindAndClick(strategy, selector string) (*Element, error) {
+	elem, err := c.FindElement(strategy, selector)
+	if err != nil {
+		return nil, err
+	}
+	if err := elem.Click(); err != nil {
+		return nil, err
+	}
+	return elem, nil
+}
+
+// SendKeysToActive sends text to the currently focused element (2 HTTP calls for native client).
+func (c *Client) SendKeysToActive(text string) error {
+	elem, err := c.ActiveElement()
+	if err != nil {
+		return err
+	}
+	return elem.SendKeys(text)
+}
+
 // ActiveElement returns the currently focused element.
 func (c *Client) ActiveElement() (*Element, error) {
 	data, err := c.request("GET", c.sessionPath("/element/active"), nil)
@@ -106,18 +159,27 @@ func (c *Client) ActiveElement() (*Element, error) {
 
 // Click taps the element.
 func (e *Element) Click() error {
+	if e.clickFunc != nil {
+		return e.clickFunc()
+	}
 	_, err := e.client.request("POST", e.client.sessionPath("/element/"+e.id+"/click"), nil)
 	return err
 }
 
 // Clear clears the element's text.
 func (e *Element) Clear() error {
+	if e.clearFunc != nil {
+		return e.clearFunc()
+	}
 	_, err := e.client.request("POST", e.client.sessionPath("/element/"+e.id+"/clear"), nil)
 	return err
 }
 
 // SendKeys types text into the element.
 func (e *Element) SendKeys(text string) error {
+	if e.sendKeysFunc != nil {
+		return e.sendKeysFunc(text)
+	}
 	req := InputTextRequest{Text: text}
 	_, err := e.client.request("POST", e.client.sessionPath("/element/"+e.id+"/value"), req)
 	return err
@@ -125,6 +187,10 @@ func (e *Element) SendKeys(text string) error {
 
 // Text returns the element's text content.
 func (e *Element) Text() (string, error) {
+	if e.cachedText != nil {
+		return *e.cachedText, nil
+	}
+
 	data, err := e.client.request("GET", e.client.sessionPath("/element/"+e.id+"/text"), nil)
 	if err != nil {
 		return "", err
@@ -157,6 +223,10 @@ func (e *Element) Attribute(name string) (string, error) {
 
 // Rect returns the element's bounds.
 func (e *Element) Rect() (ElementRect, error) {
+	if e.cachedRect != nil {
+		return *e.cachedRect, nil
+	}
+
 	data, err := e.client.request("GET", e.client.sessionPath("/element/"+e.id+"/rect"), nil)
 	if err != nil {
 		return ElementRect{}, err

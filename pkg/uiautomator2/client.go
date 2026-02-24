@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/devicelab-dev/maestro-runner/pkg/core"
 )
 
 // Client communicates with UIAutomator2 server.
@@ -267,4 +269,10 @@ func (c *Client) SetAppiumSettings(settings map[string]interface{}) error {
 		"settings": settings,
 	})
 	return err
+}
+
+// DetectWebView is a no-op for native UIAutomator2 client.
+// WebView detection is only meaningful for the DeviceLab Android Driver.
+func (c *Client) DetectWebView() (*core.WebViewInfo, error) {
+	return nil, nil
 }
