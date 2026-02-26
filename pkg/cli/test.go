@@ -62,7 +62,7 @@ Examples:
   # With Appium and capabilities file
   maestro-runner --driver appium --caps caps.json test flow.yaml
 
-  # With cloud provider (BrowserStack/SauceLabs/LambdaTest)
+  # With cloud provider (BrowserStack/SauceLabs/LambdaTest/TestingBot)
   maestro-runner --driver appium --appium-url "https://hub.provider.com/wd/hub" --caps cloud.json test flow.yaml
 
   # Custom output directory

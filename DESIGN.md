@@ -76,7 +76,7 @@ Character-by-character input via `pressKeyCode()`. No Unicode support. Drops and
 | Hardcoded ports | Dynamic ports, parallel-ready |
 | Hardcoded timeouts | Configurable per-flow and per-command |
 | Character-by-character input | Appium Unicode IME / direct UIAutomator2 |
-| No cloud support | BrowserStack, Sauce Labs, LambdaTest via Appium |
+| No cloud support | BrowserStack, Sauce Labs, LambdaTest, TestingBot via Appium |
 | 1500-line god class | Small, focused components |
 | Tight coupling | Parser, Driver, Report are independent |
 

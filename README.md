@@ -50,7 +50,7 @@ maestro-runner test --parallel 3 flows/                                 # Parall
 
 - **Zero migration** — Runs your existing Maestro YAML flows as-is, no changes needed
 - **Real iOS device testing** — Supports physical iOS devices, not just simulators [Guide →](https://devicelab.dev/blog/maestro-ios-real-device-testing)
-- **Cloud testing** — BrowserStack, Sauce Labs, LambdaTest via Appium driver [Guide →](https://devicelab.dev/blog/run-maestro-flows-any-cloud)
+- **Cloud testing** — BrowserStack, Sauce Labs, LambdaTest, TestingBot via Appium driver [Guide →](https://devicelab.dev/blog/run-maestro-flows-any-cloud)
 - **React Native & Flutter** — Smart element finding for RN testIDs and Flutter semantics [Guide →](https://devicelab.dev/blog/flutter-testing-maestro-patrol-appium)
 - **Parallel execution** — Dynamic work distribution across devices, not static sharding. Faster devices pick up more tests automatically, so no device sits idle
 - **App install built-in** — `--app-file app.apk` installs the app before testing, so you always test the right build
@@ -100,7 +100,17 @@ waitForIdleTimeout: 3000    # Device idle wait (ms), 0 to disable
 
 - **Android testing:** `adb` (Android SDK Platform-Tools)
 - **iOS testing:** Xcode command-line tools (`xcrun`)
-- **Cloud & Appium testing:** Appium 2.x or 3.x — works with local Appium servers and cloud providers (BrowserStack, Sauce Labs, LambdaTest)
+- **Cloud & Appium testing:** Appium 2.x or 3.x — works with local Appium servers and cloud providers (BrowserStack, Sauce Labs, LambdaTest, TestingBot)
+
+## Cloud Providers
+
+maestro-runner runs Maestro YAML flows on cloud device grids via the Appium driver. Pass the provider's hub URL and a capabilities JSON file:
+
+```bash
+maestro-runner --driver appium --appium-url <HUB_URL> --caps caps.json test flows/
+```
+
+- **[TestingBot](docs/cloud-providers/testingbot.md)** — Run on TestingBot's real device cloud
 
 ## Contributing
 
