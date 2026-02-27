@@ -391,12 +391,16 @@ func (fr *FlowRunner) executeStep(idx int, step flow.Step) (report.Status, strin
 
 // executeRepeat handles repeat step execution.
 func (fr *FlowRunner) executeRepeat(step *flow.RepeatStep) *core.CommandResult {
-	times := fr.script.ParseInt(step.Times, 1)
-	if times <= 0 {
-		times = 1000 // Default max iterations for while loops
-	}
-
 	hasWhile := step.While.Visible != nil || step.While.NotVisible != nil || step.While.Script != ""
+
+	defaultTimes := 1
+	if hasWhile && step.Times == "" {
+		defaultTimes = 1000 // Max iterations for while loops without explicit times
+	}
+	times := fr.script.ParseInt(step.Times, defaultTimes)
+	if times <= 0 {
+		times = 1
+	}
 
 	for i := 0; i < times; i++ {
 		// Check context
@@ -421,6 +425,12 @@ func (fr *FlowRunner) executeRepeat(step *flow.RepeatStep) *core.CommandResult {
 			if !result.Success && !nestedStep.IsOptional() {
 				return result
 			}
+		}
+
+		// Brief settle delay for while loops — gives the UI/accessibility tree
+		// time to update after actions before re-checking the condition
+		if hasWhile {
+			time.Sleep(300 * time.Millisecond)
 		}
 	}
 
