@@ -2,9 +2,11 @@ package executor
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/devicelab-dev/maestro-runner/pkg/core"
+	"github.com/devicelab-dev/maestro-runner/pkg/report"
 )
 
 func TestClassifyError(t *testing.T) {
@@ -94,6 +96,83 @@ func TestCommandResultToErrorClassification(t *testing.T) {
 		}
 		if got.Message != "Connection refused to device" {
 			t.Errorf("Message = %q, want message from result", got.Message)
+		}
+	})
+}
+
+func TestEnrichErrorWithCDP(t *testing.T) {
+	t.Run("CDP available", func(t *testing.T) {
+		errInfo := &report.Error{Type: "element_not_found", Message: "not found"}
+		cdp := &core.CDPInfo{
+			Available: true,
+			Socket:    "webview_devtools_remote_12345",
+		}
+		enrichErrorWithCDP(errInfo, cdp)
+		if !strings.Contains(errInfo.Details, "CDP socket available: webview_devtools_remote_12345") {
+			t.Errorf("expected CDP socket in details, got %q", errInfo.Details)
+		}
+		if !strings.Contains(errInfo.Details, "WebView or browser detected") {
+			t.Errorf("expected WebView mention in details, got %q", errInfo.Details)
+		}
+	})
+
+	t.Run("appends to existing details", func(t *testing.T) {
+		errInfo := &report.Error{Type: "timeout", Message: "timed out", Details: "existing detail"}
+		cdp := &core.CDPInfo{Available: true, Socket: "webview_devtools_remote_999"}
+		enrichErrorWithCDP(errInfo, cdp)
+		if !strings.HasPrefix(errInfo.Details, "existing detail\n") {
+			t.Errorf("expected existing details preserved, got %q", errInfo.Details)
+		}
+	})
+}
+
+func TestEnrichErrorWithWebView(t *testing.T) {
+	t.Run("webview type", func(t *testing.T) {
+		errInfo := &report.Error{Type: "element_not_found", Message: "not found"}
+		wv := &core.WebViewInfo{
+			Type:        "webview",
+			ClassName:   "android.webkit.WebView",
+			PackageName: "com.example.app",
+		}
+		enrichErrorWithWebView(errInfo, wv)
+		if !strings.Contains(errInfo.Details, "android.webkit.WebView") {
+			t.Errorf("expected WebView class in details, got %q", errInfo.Details)
+		}
+		if !strings.Contains(errInfo.Details, "com.example.app") {
+			t.Errorf("expected package name in details, got %q", errInfo.Details)
+		}
+		if !strings.Contains(errInfo.Details, "not accessible through native UI automation") {
+			t.Errorf("expected explanation of why element can't be found, got %q", errInfo.Details)
+		}
+		if !strings.Contains(errInfo.Details, "setWebContentsDebuggingEnabled(true)") {
+			t.Errorf("expected CDP enablement hint, got %q", errInfo.Details)
+		}
+	})
+
+	t.Run("browser type", func(t *testing.T) {
+		errInfo := &report.Error{Type: "element_not_found", Message: "not found"}
+		wv := &core.WebViewInfo{
+			Type:        "browser",
+			PackageName: "com.android.chrome",
+		}
+		enrichErrorWithWebView(errInfo, wv)
+		if !strings.Contains(errInfo.Details, "com.android.chrome") {
+			t.Errorf("expected browser package in details, got %q", errInfo.Details)
+		}
+		if !strings.Contains(errInfo.Details, "not accessible through native UI automation") {
+			t.Errorf("expected explanation of why element can't be found, got %q", errInfo.Details)
+		}
+		if !strings.Contains(errInfo.Details, "CDP") {
+			t.Errorf("expected CDP mention, got %q", errInfo.Details)
+		}
+	})
+
+	t.Run("appends to existing details", func(t *testing.T) {
+		errInfo := &report.Error{Type: "timeout", Message: "timed out", Details: "existing detail"}
+		wv := &core.WebViewInfo{Type: "webview", ClassName: "android.webkit.WebView", PackageName: "com.example.app"}
+		enrichErrorWithWebView(errInfo, wv)
+		if !strings.HasPrefix(errInfo.Details, "existing detail\n") {
+			t.Errorf("expected existing details preserved, got %q", errInfo.Details)
 		}
 	})
 }

@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/devicelab-dev/maestro-runner/pkg/core"
@@ -50,6 +51,45 @@ func commandResultToError(r *core.CommandResult) *report.Error {
 	return &report.Error{
 		Type:    errType,
 		Message: message,
+	}
+}
+
+// enrichErrorWithCDP adds CDP socket context to an error when a DevTools socket is detected.
+// This indicates a WebView or browser is present with debugging enabled.
+func enrichErrorWithCDP(errInfo *report.Error, cdp *core.CDPInfo) {
+	detail := fmt.Sprintf("CDP socket available: %s (WebView or browser detected with DevTools enabled)", cdp.Socket)
+	if errInfo.Details != "" {
+		errInfo.Details += "\n" + detail
+	} else {
+		errInfo.Details = detail
+	}
+}
+
+// enrichErrorWithWebView adds WebView context to an error when a WebView is detected but CDP is not available.
+// This tells the user that their element is likely inside a WebView whose content is invisible
+// to native UI automation — and explains what they need to do about it.
+func enrichErrorWithWebView(errInfo *report.Error, wv *core.WebViewInfo) {
+	var detail string
+	if wv.Type == "browser" {
+		detail = fmt.Sprintf(
+			"A browser (%s) is visible on screen. Elements inside the browser are rendered by a web engine "+
+				"and are not accessible through native UI automation. "+
+				"To interact with web content, Chrome DevTools Protocol (CDP) is needed but is currently not available.",
+			wv.PackageName,
+		)
+	} else {
+		detail = fmt.Sprintf(
+			"A WebView (%s) is visible on screen in %s. Elements inside the WebView are rendered by a web engine "+
+				"and are not accessible through native UI automation. "+
+				"To interact with web content, enable Chrome DevTools Protocol (CDP) by adding "+
+				"WebView.setWebContentsDebuggingEnabled(true) in the app's code.",
+			wv.ClassName, wv.PackageName,
+		)
+	}
+	if errInfo.Details != "" {
+		errInfo.Details += "\n" + detail
+	} else {
+		errInfo.Details = detail
 	}
 }
 

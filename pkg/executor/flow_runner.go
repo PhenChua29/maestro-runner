@@ -360,6 +360,25 @@ func (fr *FlowRunner) executeStep(idx int, step flow.Step) (report.Status, strin
 		if errorInfo != nil {
 			errorMsg = errorInfo.Message
 		}
+		// Enrich error with WebView/CDP context
+		if errorInfo != nil {
+			cdpAvailable := false
+			if provider, ok := fr.driver.(core.CDPStateProvider); ok {
+				if cdp := provider.CDPState(); cdp != nil && cdp.Available {
+					enrichErrorWithCDP(errorInfo, cdp)
+					cdpAvailable = true
+				}
+			}
+			// If CDP is not available, do an on-demand WebView check.
+			// This is ~30ms (accessibility tree scan) — acceptable on failure.
+			if !cdpAvailable {
+				if detector, ok := fr.driver.(core.WebViewDetector); ok {
+					if wv, err := detector.DetectWebView(); err == nil && wv != nil {
+						enrichErrorWithWebView(errorInfo, wv)
+					}
+				}
+			}
+		}
 		logger.Error("Step %d failed (%dms): %s - Error: %s", idx, stepDuration, step.Describe(), errorMsg)
 	}
 
