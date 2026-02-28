@@ -167,6 +167,18 @@ type WebViewInfo struct {
 	ClassName   string // e.g., "android.webkit.WebView" (only for type=webview)
 }
 
+// CDPInfo describes the Chrome DevTools Protocol socket state.
+type CDPInfo struct {
+	Available bool   // CDP socket detected
+	Socket    string // e.g., "webview_devtools_remote_12345"
+}
+
+// CDPStateProvider is an optional interface drivers can implement
+// to provide real-time CDP socket state from background monitoring.
+type CDPStateProvider interface {
+	CDPState() *CDPInfo
+}
+
 // AppLifecycleManager is an optional interface drivers can implement
 // to handle app lifecycle operations (force-stop, clear data) on-device
 // instead of via ADB shell.

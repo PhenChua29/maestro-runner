@@ -83,6 +83,9 @@ type Driver struct {
 	// Cached values to avoid repeated ADB shell calls
 	cachedAPILevel   int
 	cachedActivities map[string]string // appID -> activity
+
+	// CDP state from background push events (nil = not wired)
+	cdpStateFunc func() *core.CDPInfo
 }
 
 // New creates a new DeviceLab driver.
@@ -92,6 +95,21 @@ func New(client DeviceLabClient, info *core.PlatformInfo, device ShellExecutor) 
 		info:   info,
 		device: device,
 	}
+}
+
+// SetCDPStateFunc sets the function used to retrieve real-time CDP socket state
+// from the background monitor.
+func (d *Driver) SetCDPStateFunc(fn func() *core.CDPInfo) {
+	d.cdpStateFunc = fn
+}
+
+// CDPState returns the latest CDP socket state from push events.
+// Implements core.CDPStateProvider.
+func (d *Driver) CDPState() *core.CDPInfo {
+	if d.cdpStateFunc != nil {
+		return d.cdpStateFunc()
+	}
+	return nil
 }
 
 // screenSize returns cached screen dimensions from PlatformInfo.

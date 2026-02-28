@@ -55,3 +55,46 @@ func (kt *KeyboardTracker) GetKeyboardInfo() *KeyboardInfo {
 	info := kt.info
 	return &info
 }
+
+// CDPState is the payload pushed by the Java driver's CDP socket monitor.
+type CDPState struct {
+	Available bool   `json:"available"`
+	Socket    string `json:"socket,omitempty"`
+}
+
+// CDPTracker tracks Chrome DevTools Protocol socket availability from push events.
+// The Java driver polls /proc/net/unix every 100ms (virtually free) and pushes on change.
+type CDPTracker struct {
+	mu    sync.RWMutex
+	state CDPState
+	ready bool // true after first event received
+}
+
+// NewCDPTracker creates a tracker and wires it to the client's
+// UI.cdpStateChanged event.
+func NewCDPTracker(c *Client) *CDPTracker {
+	ct := &CDPTracker{}
+	c.OnEvent("UI.cdpStateChanged", func(params json.RawMessage) {
+		var state CDPState
+		if err := json.Unmarshal(params, &state); err != nil {
+			return
+		}
+		ct.mu.Lock()
+		ct.state = state
+		ct.ready = true
+		ct.mu.Unlock()
+	})
+	return ct
+}
+
+// Latest returns the latest CDP socket state.
+// Returns nil if no event has been received yet.
+func (ct *CDPTracker) Latest() *CDPState {
+	ct.mu.RLock()
+	defer ct.mu.RUnlock()
+	if !ct.ready {
+		return nil
+	}
+	state := ct.state
+	return &state
+}

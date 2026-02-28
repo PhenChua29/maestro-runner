@@ -419,6 +419,19 @@ func createDeviceLabDriver(cfg *RunConfig, dev *device.AndroidDevice, info devic
 	}
 	driver := devicelabdriver.New(adapter, platformInfo, dev)
 
+	// Wire background CDP socket monitor (push events from Java driver, polls /proc/net/unix every 100ms)
+	cdpTracker := maestro.NewCDPTracker(wsClient)
+	driver.SetCDPStateFunc(func() *core.CDPInfo {
+		state := cdpTracker.Latest()
+		if state == nil {
+			return nil
+		}
+		return &core.CDPInfo{
+			Available: state.Available,
+			Socket:    state.Socket,
+		}
+	})
+
 	cleanup := func() {
 		if err := adapter.DeleteSession(); err != nil {
 			logger.Debug("failed to delete session during cleanup: %v", err)

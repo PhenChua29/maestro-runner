@@ -65,6 +65,61 @@ func TestKeyboardTracker(t *testing.T) {
 	}
 }
 
+func TestCDPTracker(t *testing.T) {
+	server, pushEvent := newMockWSServerWithPush(t, func(req Request) interface{} {
+		return map[string]interface{}{}
+	})
+	defer server.Close()
+
+	client := tcpClientFromServer(t, server)
+	defer client.Close()
+
+	tracker := NewCDPTracker(client)
+
+	// Before any event, should return nil
+	if state := tracker.Latest(); state != nil {
+		t.Errorf("expected nil before first event, got %+v", state)
+	}
+
+	// Establish connection
+	_, _ = client.Call("Session.status", nil)
+
+	// Push CDP available event
+	pushEvent(Event{
+		Event:  "UI.cdpStateChanged",
+		Params: json.RawMessage(`{"available":true,"socket":"webview_devtools_remote_12345"}`),
+	})
+
+	time.Sleep(200 * time.Millisecond)
+
+	state := tracker.Latest()
+	if state == nil {
+		t.Fatal("expected CDP state, got nil")
+	}
+	if !state.Available {
+		t.Error("expected available=true")
+	}
+	if state.Socket != "webview_devtools_remote_12345" {
+		t.Errorf("expected socket=webview_devtools_remote_12345, got %s", state.Socket)
+	}
+
+	// Push CDP down event
+	pushEvent(Event{
+		Event:  "UI.cdpStateChanged",
+		Params: json.RawMessage(`{"available":false}`),
+	})
+
+	time.Sleep(200 * time.Millisecond)
+
+	state = tracker.Latest()
+	if state == nil {
+		t.Fatal("expected CDP state, got nil")
+	}
+	if state.Available {
+		t.Error("expected available=false")
+	}
+}
+
 func TestKeyboardTrackerConcurrency(t *testing.T) {
 	server, pushEvent := newMockWSServerWithPush(t, func(req Request) interface{} {
 		return map[string]interface{}{}
