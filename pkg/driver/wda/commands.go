@@ -1065,6 +1065,98 @@ func parsePercentageCoords(coord string) (float64, float64, error) {
 	return core.ParsePercentageCoords(coord)
 }
 
+// Airplane mode
+
+// findAirplaneModeSwitch activates Settings and finds the Airplane Mode switch row.
+// Returns the element ID and rect. Retries up to 5 times (1s apart) for Settings load time.
+// The row element's `name` is "com.apple.settings.airplaneMode", `label` is "Airplane Mode".
+// The actual toggle widget is a child at the right edge of the row.
+func (d *Driver) findAirplaneModeSwitch() (elemID string, x, y, w, h int, err error) {
+	if activateErr := d.client.ActivateApp("com.apple.Preferences"); activateErr != nil {
+		return "", 0, 0, 0, 0, fmt.Errorf("failed to open Settings: %w", activateErr)
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	var findErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		elemID, findErr = d.client.FindElement("predicate string",
+			"type == 'XCUIElementTypeSwitch' AND label == 'Airplane Mode'")
+		if findErr == nil && elemID != "" {
+			x, y, w, h, err = d.client.ElementRect(elemID)
+			if err != nil {
+				return "", 0, 0, 0, 0, fmt.Errorf("failed to get switch rect: %w", err)
+			}
+			return elemID, x, y, w, h, nil
+		}
+		logger.Debug("findAirplaneModeSwitch: attempt %d - not found: %v", attempt+1, findErr)
+		time.Sleep(1 * time.Second)
+	}
+	return "", 0, 0, 0, 0, findErr
+}
+
+// tapAirplaneModeToggle taps the actual toggle widget on the right side of the
+// Airplane Mode row. The FindElement matches the full-width row (x=16, w=343),
+// but the physical toggle is a child at the far right (~x=282, w=63).
+// ElementClick hits the row center (the label text) which doesn't flip the switch.
+func (d *Driver) tapAirplaneModeToggle(x, y, w, h int) error {
+	// Tap the right portion of the row where the toggle widget lives
+	tapX := float64(x+w) - 30.0
+	tapY := float64(y) + float64(h)/2.0
+	return d.client.Tap(tapX, tapY)
+}
+
+func (d *Driver) setAirplaneMode(step *flow.SetAirplaneModeStep) *core.CommandResult {
+	if d.info != nil && d.info.IsSimulator {
+		return successResult("setAirplaneMode: simulators don't have airplane mode (skipped)", nil)
+	}
+
+	elemID, x, y, w, h, findErr := d.findAirplaneModeSwitch()
+	if findErr != nil || elemID == "" {
+		return errorResult(findErr, "Failed to find Airplane Mode switch in Settings")
+	}
+
+	value, err := d.client.ElementAttribute(elemID, "value")
+	if err != nil {
+		return errorResult(err, "Failed to read Airplane Mode switch state")
+	}
+
+	isOn := value == "1"
+	if isOn == step.Enabled {
+		state := "enabled"
+		if !step.Enabled {
+			state = "disabled"
+		}
+		return successResult(fmt.Sprintf("Airplane mode already %s", state), nil)
+	}
+
+	if err := d.tapAirplaneModeToggle(x, y, w, h); err != nil {
+		return errorResult(err, "Failed to toggle Airplane Mode switch")
+	}
+
+	state := "enabled"
+	if !step.Enabled {
+		state = "disabled"
+	}
+	return successResult(fmt.Sprintf("Airplane mode %s", state), nil)
+}
+
+func (d *Driver) toggleAirplaneMode(_ *flow.ToggleAirplaneModeStep) *core.CommandResult {
+	if d.info != nil && d.info.IsSimulator {
+		return successResult("toggleAirplaneMode: simulators don't have airplane mode (skipped)", nil)
+	}
+
+	_, x, y, w, h, findErr := d.findAirplaneModeSwitch()
+	if findErr != nil {
+		return errorResult(findErr, "Failed to find Airplane Mode switch in Settings")
+	}
+
+	if err := d.tapAirplaneModeToggle(x, y, w, h); err != nil {
+		return errorResult(err, "Failed to toggle Airplane Mode switch")
+	}
+
+	return successResult("Toggled airplane mode", nil)
+}
+
 // setPermissions sets app permissions.
 // On simulators, uses xcrun simctl privacy. On real devices, relies on WDA's
 // defaultAlertAction set at session creation time.

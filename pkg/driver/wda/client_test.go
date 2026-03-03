@@ -1188,3 +1188,50 @@ func TestBase64DecodeInvalid(t *testing.T) {
 		t.Error("Expected error for invalid base64")
 	}
 }
+
+// TestElementAttribute tests element attribute retrieval
+func TestElementAttribute(t *testing.T) {
+	server := mockWDAServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("Expected GET, got %s", r.Method)
+		}
+		if !strings.Contains(r.URL.Path, "/element/switch-1/attribute/value") {
+			t.Errorf("Expected attribute path, got %s", r.URL.Path)
+		}
+		jsonResponse(w, map[string]interface{}{"value": "1"})
+	})
+	defer server.Close()
+
+	client := &Client{
+		baseURL:    server.URL,
+		httpClient: http.DefaultClient,
+		sessionID:  "test-session",
+	}
+
+	val, err := client.ElementAttribute("switch-1", "value")
+	if err != nil {
+		t.Fatalf("ElementAttribute failed: %v", err)
+	}
+	if val != "1" {
+		t.Errorf("Expected '1', got '%s'", val)
+	}
+}
+
+// TestElementAttributeInvalidResponse tests ElementAttribute with non-string response
+func TestElementAttributeInvalidResponse(t *testing.T) {
+	server := mockWDAServer(func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(w, map[string]interface{}{"value": 42})
+	})
+	defer server.Close()
+
+	client := &Client{
+		baseURL:    server.URL,
+		httpClient: http.DefaultClient,
+		sessionID:  "test-session",
+	}
+
+	_, err := client.ElementAttribute("switch-1", "value")
+	if err == nil {
+		t.Error("Expected error for non-string attribute value")
+	}
+}

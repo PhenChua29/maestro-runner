@@ -465,6 +465,19 @@ func (c *Client) ElementRect(elementID string) (x, y, width, height int, err err
 	return x, y, width, height, nil
 }
 
+// ElementAttribute returns the value of an element attribute.
+// Uses the standard WebDriver endpoint: GET /session/{id}/element/{elementId}/attribute/{name}
+func (c *Client) ElementAttribute(elementID, name string) (string, error) {
+	resp, err := c.get(c.sessionPath(fmt.Sprintf("/element/%s/attribute/%s", elementID, name)))
+	if err != nil {
+		return "", err
+	}
+	if value, ok := resp["value"].(string); ok {
+		return value, nil
+	}
+	return "", fmt.Errorf("invalid element attribute response")
+}
+
 // GetActiveElement returns the currently focused element ID.
 func (c *Client) GetActiveElement() (string, error) {
 	resp, err := c.get(c.sessionPath("/element/active"))

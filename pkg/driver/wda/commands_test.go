@@ -4062,3 +4062,431 @@ func TestWaitForAlertPollingBehavior(t *testing.T) {
 		t.Errorf("Expected at least 3 calls (polling), got: %d", callCount)
 	}
 }
+
+// =============================================================================
+// setAirplaneMode / toggleAirplaneMode tests
+// =============================================================================
+
+func TestSetAirplaneModeSimulatorSkips(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("No WDA calls should be made for simulator")
+		jsonResponse(w, map[string]interface{}{"status": 0})
+	}))
+	defer server.Close()
+
+	client := &Client{
+		baseURL:    server.URL,
+		httpClient: http.DefaultClient,
+		sessionID:  "test-session",
+	}
+	info := &core.PlatformInfo{Platform: "ios", IsSimulator: true}
+	driver := NewDriver(client, info, "sim-udid")
+
+	step := &flow.SetAirplaneModeStep{Enabled: true}
+	result := driver.setAirplaneMode(step)
+
+	if !result.Success {
+		t.Errorf("Expected success, got: %s", result.Message)
+	}
+	if !strings.Contains(result.Message, "skipped") {
+		t.Errorf("Expected skip message, got: %s", result.Message)
+	}
+}
+
+func TestToggleAirplaneModeSimulatorSkips(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("No WDA calls should be made for simulator")
+		jsonResponse(w, map[string]interface{}{"status": 0})
+	}))
+	defer server.Close()
+
+	client := &Client{
+		baseURL:    server.URL,
+		httpClient: http.DefaultClient,
+		sessionID:  "test-session",
+	}
+	info := &core.PlatformInfo{Platform: "ios", IsSimulator: true}
+	driver := NewDriver(client, info, "sim-udid")
+
+	step := &flow.ToggleAirplaneModeStep{}
+	result := driver.toggleAirplaneMode(step)
+
+	if !result.Success {
+		t.Errorf("Expected success, got: %s", result.Message)
+	}
+	if !strings.Contains(result.Message, "skipped") {
+		t.Errorf("Expected skip message, got: %s", result.Message)
+	}
+}
+
+// airplaneModeHandler returns a mock handler that simulates the Settings airplane mode UI.
+// switchValue is "0" (off) or "1" (on). tapped tracks whether the toggle was tapped.
+func airplaneModeHandler(t *testing.T, switchValue string, tapped *bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		t.Helper()
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+
+		if strings.Contains(path, "/wda/apps/activate") {
+			jsonResponse(w, map[string]interface{}{"status": 0})
+			return
+		}
+		if strings.HasSuffix(path, "/element") && r.Method == "POST" {
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{"ELEMENT": "switch-1"},
+			})
+			return
+		}
+		// ElementRect — row is x=16, y=370, w=343, h=52
+		if strings.Contains(path, "/element/switch-1/rect") {
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{
+					"x": 16.0, "y": 370.0, "width": 343.0, "height": 52.0,
+				},
+			})
+			return
+		}
+		if strings.Contains(path, "/attribute/value") {
+			jsonResponse(w, map[string]interface{}{"value": switchValue})
+			return
+		}
+		// Coordinate tap (used instead of ElementClick to hit the actual toggle)
+		if strings.Contains(path, "/wda/tap") {
+			if tapped != nil {
+				*tapped = true
+			}
+			jsonResponse(w, map[string]interface{}{"status": 0})
+			return
+		}
+		jsonResponse(w, map[string]interface{}{"status": 0})
+	}
+}
+
+func newRealDeviceDriver(server *httptest.Server) *Driver {
+	client := &Client{
+		baseURL:    server.URL,
+		httpClient: http.DefaultClient,
+		sessionID:  "test-session",
+	}
+	info := &core.PlatformInfo{Platform: "ios", IsSimulator: false}
+	return NewDriver(client, info, "real-device-udid")
+}
+
+func TestSetAirplaneModeAlreadyEnabled(t *testing.T) {
+	server := httptest.NewServer(airplaneModeHandler(t, "1", nil))
+	defer server.Close()
+	driver := newRealDeviceDriver(server)
+
+	step := &flow.SetAirplaneModeStep{Enabled: true}
+	result := driver.setAirplaneMode(step)
+
+	if !result.Success {
+		t.Errorf("Expected success, got: %s", result.Message)
+	}
+	if !strings.Contains(result.Message, "already enabled") {
+		t.Errorf("Expected 'already enabled' message, got: %s", result.Message)
+	}
+}
+
+func TestSetAirplaneModeEnableFromOff(t *testing.T) {
+	var tapped bool
+	server := httptest.NewServer(airplaneModeHandler(t, "0", &tapped))
+	defer server.Close()
+	driver := newRealDeviceDriver(server)
+
+	step := &flow.SetAirplaneModeStep{Enabled: true}
+	result := driver.setAirplaneMode(step)
+
+	if !result.Success {
+		t.Errorf("Expected success, got: %s", result.Message)
+	}
+	if !tapped {
+		t.Error("Expected toggle to be tapped")
+	}
+	if !strings.Contains(result.Message, "enabled") {
+		t.Errorf("Expected 'enabled' message, got: %s", result.Message)
+	}
+}
+
+func TestSetAirplaneModeDisableFromOn(t *testing.T) {
+	var tapped bool
+	server := httptest.NewServer(airplaneModeHandler(t, "1", &tapped))
+	defer server.Close()
+	driver := newRealDeviceDriver(server)
+
+	step := &flow.SetAirplaneModeStep{Enabled: false}
+	result := driver.setAirplaneMode(step)
+
+	if !result.Success {
+		t.Errorf("Expected success, got: %s", result.Message)
+	}
+	if !tapped {
+		t.Error("Expected toggle to be tapped")
+	}
+	if !strings.Contains(result.Message, "disabled") {
+		t.Errorf("Expected 'disabled' message, got: %s", result.Message)
+	}
+}
+
+func TestToggleAirplaneModeRealDevice(t *testing.T) {
+	var tapped bool
+	server := httptest.NewServer(airplaneModeHandler(t, "0", &tapped))
+	defer server.Close()
+	driver := newRealDeviceDriver(server)
+
+	step := &flow.ToggleAirplaneModeStep{}
+	result := driver.toggleAirplaneMode(step)
+
+	if !result.Success {
+		t.Errorf("Expected success, got: %s", result.Message)
+	}
+	if !tapped {
+		t.Error("Expected toggle to be tapped")
+	}
+}
+
+func TestSetAirplaneModeAlreadyDisabled(t *testing.T) {
+	server := httptest.NewServer(airplaneModeHandler(t, "0", nil))
+	defer server.Close()
+	driver := newRealDeviceDriver(server)
+
+	step := &flow.SetAirplaneModeStep{Enabled: false}
+	result := driver.setAirplaneMode(step)
+
+	if !result.Success {
+		t.Errorf("Expected success, got: %s", result.Message)
+	}
+	if !strings.Contains(result.Message, "already disabled") {
+		t.Errorf("Expected 'already disabled' message, got: %s", result.Message)
+	}
+}
+
+func TestSetAirplaneModeNilInfo(t *testing.T) {
+	var tapped bool
+	server := httptest.NewServer(airplaneModeHandler(t, "0", &tapped))
+	defer server.Close()
+
+	client := &Client{
+		baseURL:    server.URL,
+		httpClient: http.DefaultClient,
+		sessionID:  "test-session",
+	}
+	// nil info -- should NOT skip (nil info means unknown, not simulator)
+	driver := NewDriver(client, nil, "some-udid")
+
+	step := &flow.SetAirplaneModeStep{Enabled: true}
+	result := driver.setAirplaneMode(step)
+
+	if !result.Success {
+		t.Errorf("Expected success, got: %s", result.Message)
+	}
+	if !tapped {
+		t.Error("Expected toggle to be tapped when info is nil")
+	}
+}
+
+func TestToggleAirplaneModeNilInfo(t *testing.T) {
+	var tapped bool
+	server := httptest.NewServer(airplaneModeHandler(t, "1", &tapped))
+	defer server.Close()
+
+	client := &Client{
+		baseURL:    server.URL,
+		httpClient: http.DefaultClient,
+		sessionID:  "test-session",
+	}
+	driver := NewDriver(client, nil, "some-udid")
+
+	step := &flow.ToggleAirplaneModeStep{}
+	result := driver.toggleAirplaneMode(step)
+
+	if !result.Success {
+		t.Errorf("Expected success, got: %s", result.Message)
+	}
+	if !tapped {
+		t.Error("Expected toggle to be tapped when info is nil")
+	}
+}
+
+func TestSetAirplaneModeActivateSettingsFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/wda/apps/activate") {
+			// Return a WDA error for activate
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{
+					"error":   "unknown error",
+					"message": "Failed to activate app",
+				},
+			})
+			return
+		}
+		jsonResponse(w, map[string]interface{}{"status": 0})
+	}))
+	defer server.Close()
+	driver := newRealDeviceDriver(server)
+
+	step := &flow.SetAirplaneModeStep{Enabled: true}
+	result := driver.setAirplaneMode(step)
+
+	if result.Success {
+		t.Error("Expected failure when Settings cannot be activated")
+	}
+}
+
+func TestSetAirplaneModeElementNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/wda/apps/activate") {
+			jsonResponse(w, map[string]interface{}{"status": 0})
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/element") && r.Method == "POST" {
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{
+					"error":   "no such element",
+					"message": "Element not found",
+				},
+			})
+			return
+		}
+		jsonResponse(w, map[string]interface{}{"status": 0})
+	}))
+	defer server.Close()
+	driver := newRealDeviceDriver(server)
+
+	step := &flow.SetAirplaneModeStep{Enabled: true}
+	result := driver.setAirplaneMode(step)
+
+	if result.Success {
+		t.Error("Expected failure when airplane mode switch is not found")
+	}
+}
+
+func TestSetAirplaneModeAttributeReadFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/wda/apps/activate") {
+			jsonResponse(w, map[string]interface{}{"status": 0})
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/element") && r.Method == "POST" {
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{"ELEMENT": "switch-1"},
+			})
+			return
+		}
+		if strings.Contains(r.URL.Path, "/element/switch-1/rect") {
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{
+					"x": 16.0, "y": 370.0, "width": 343.0, "height": 52.0,
+				},
+			})
+			return
+		}
+		if strings.Contains(r.URL.Path, "/attribute/value") {
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{
+					"error":   "unknown error",
+					"message": "Cannot read attribute",
+				},
+			})
+			return
+		}
+		jsonResponse(w, map[string]interface{}{"status": 0})
+	}))
+	defer server.Close()
+	driver := newRealDeviceDriver(server)
+
+	step := &flow.SetAirplaneModeStep{Enabled: true}
+	result := driver.setAirplaneMode(step)
+
+	if result.Success {
+		t.Error("Expected failure when attribute cannot be read")
+	}
+}
+
+func TestSetAirplaneModeTapFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/wda/apps/activate") {
+			jsonResponse(w, map[string]interface{}{"status": 0})
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/element") && r.Method == "POST" {
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{"ELEMENT": "switch-1"},
+			})
+			return
+		}
+		if strings.Contains(r.URL.Path, "/element/switch-1/rect") {
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{
+					"x": 16.0, "y": 370.0, "width": 343.0, "height": 52.0,
+				},
+			})
+			return
+		}
+		if strings.Contains(r.URL.Path, "/attribute/value") {
+			jsonResponse(w, map[string]interface{}{"value": "0"})
+			return
+		}
+		if strings.Contains(r.URL.Path, "/wda/tap") {
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{
+					"error":   "unknown error",
+					"message": "Tap failed",
+				},
+			})
+			return
+		}
+		jsonResponse(w, map[string]interface{}{"status": 0})
+	}))
+	defer server.Close()
+	driver := newRealDeviceDriver(server)
+
+	step := &flow.SetAirplaneModeStep{Enabled: true}
+	result := driver.setAirplaneMode(step)
+
+	if result.Success {
+		t.Error("Expected failure when tap fails")
+	}
+}
+
+func TestToggleAirplaneModeTapFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/wda/apps/activate") {
+			jsonResponse(w, map[string]interface{}{"status": 0})
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/element") && r.Method == "POST" {
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{"ELEMENT": "switch-1"},
+			})
+			return
+		}
+		if strings.Contains(r.URL.Path, "/element/switch-1/rect") {
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{
+					"x": 16.0, "y": 370.0, "width": 343.0, "height": 52.0,
+				},
+			})
+			return
+		}
+		if strings.Contains(r.URL.Path, "/wda/tap") {
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{
+					"error":   "unknown error",
+					"message": "Tap failed",
+				},
+			})
+			return
+		}
+		jsonResponse(w, map[string]interface{}{"status": 0})
+	}))
+	defer server.Close()
+	driver := newRealDeviceDriver(server)
+
+	step := &flow.ToggleAirplaneModeStep{}
+	result := driver.toggleAirplaneMode(step)
+
+	if result.Success {
+		t.Error("Expected failure when tap fails")
+	}
+}

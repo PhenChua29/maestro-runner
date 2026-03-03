@@ -184,6 +184,12 @@ func (d *Driver) Execute(step flow.Step) *core.CommandResult {
 	case *flow.TakeScreenshotStep:
 		result = d.takeScreenshot(s)
 
+	// Airplane mode
+	case *flow.SetAirplaneModeStep:
+		result = d.setAirplaneMode(s)
+	case *flow.ToggleAirplaneModeStep:
+		result = d.toggleAirplaneMode(s)
+
 	// Permissions
 	case *flow.SetPermissionsStep:
 		result = d.setPermissions(s)
