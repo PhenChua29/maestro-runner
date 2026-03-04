@@ -1446,31 +1446,49 @@ func (d *Driver) setLocation(step *flow.SetLocationStep) *core.CommandResult {
 	return successResult(fmt.Sprintf("Set location to %s, %s", lat, lon), nil)
 }
 
-func (d *Driver) setAirplaneMode(step *flow.SetAirplaneModeStep) *core.CommandResult {
+// applyAirplaneMode sets airplane mode on/off using the best available method.
+// Android 11+ (API 30+): "cmd connectivity airplane-mode" works without root.
+// Older Android: "settings put global" + broadcast fallback.
+func (d *Driver) applyAirplaneMode(enable bool) *core.CommandResult {
 	if d.device == nil {
 		return errorResult(fmt.Errorf("device not configured"), "setAirplaneMode requires device access")
 	}
 
-	value := "0"
-	if step.Enabled {
-		value = "1"
+	mode := "disable"
+	status := "disabled"
+	if enable {
+		mode = "enable"
+		status = "enabled"
 	}
 
-	cmd := fmt.Sprintf("settings put global airplane_mode_on %s", value)
-	if _, err := d.device.Shell(cmd); err != nil {
+	// Try "cmd connectivity airplane-mode" first (Android 11+ / API 30+)
+	cmdStr := fmt.Sprintf("cmd connectivity airplane-mode %s", mode)
+	out, err := d.device.Shell(cmdStr)
+	if err == nil && !strings.Contains(out, "Unknown command") {
+		return successResult(fmt.Sprintf("Airplane mode %s", status), nil)
+	}
+
+	// Fallback: settings put + broadcast (older Android)
+	value := "0"
+	if enable {
+		value = "1"
+	}
+	settingsCmd := fmt.Sprintf("settings put global airplane_mode_on %s", value)
+	if _, err := d.device.Shell(settingsCmd); err != nil {
 		return errorResult(err, fmt.Sprintf("Failed to set airplane mode: %v", err))
 	}
 
+	// Broadcast may fail on Android 7+ without root — warn but don't fail
 	broadcastCmd := "am broadcast -a android.intent.action.AIRPLANE_MODE"
 	if _, err := d.device.Shell(broadcastCmd); err != nil {
-		return errorResult(err, fmt.Sprintf("Failed to broadcast airplane mode: %v", err))
+		logger.Warn("airplane mode broadcast failed (expected on Android 7+ without root): %v", err)
 	}
 
-	status := "disabled"
-	if step.Enabled {
-		status = "enabled"
-	}
 	return successResult(fmt.Sprintf("Airplane mode %s", status), nil)
+}
+
+func (d *Driver) setAirplaneMode(step *flow.SetAirplaneModeStep) *core.CommandResult {
+	return d.applyAirplaneMode(step.Enabled)
 }
 
 func (d *Driver) toggleAirplaneMode(_ *flow.ToggleAirplaneModeStep) *core.CommandResult {
@@ -1483,26 +1501,8 @@ func (d *Driver) toggleAirplaneMode(_ *flow.ToggleAirplaneModeStep) *core.Comman
 		return errorResult(err, fmt.Sprintf("Failed to get airplane mode: %v", err))
 	}
 
-	newValue := "1"
-	if strings.TrimSpace(output) == "1" {
-		newValue = "0"
-	}
-
-	cmd := fmt.Sprintf("settings put global airplane_mode_on %s", newValue)
-	if _, err := d.device.Shell(cmd); err != nil {
-		return errorResult(err, fmt.Sprintf("Failed to toggle airplane mode: %v", err))
-	}
-
-	broadcastCmd := "am broadcast -a android.intent.action.AIRPLANE_MODE"
-	if _, err := d.device.Shell(broadcastCmd); err != nil {
-		return errorResult(err, fmt.Sprintf("Failed to broadcast airplane mode: %v", err))
-	}
-
-	status := "disabled"
-	if newValue == "1" {
-		status = "enabled"
-	}
-	return successResult(fmt.Sprintf("Airplane mode toggled to %s", status), nil)
+	enable := strings.TrimSpace(output) != "1"
+	return d.applyAirplaneMode(enable)
 }
 
 func (d *Driver) travel(step *flow.TravelStep) *core.CommandResult {
