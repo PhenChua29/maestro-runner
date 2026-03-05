@@ -231,8 +231,8 @@ func resolveBrowserBin(cfg Config) string {
 		return cfg.ChromeBin
 	}
 
-	browser := strings.ToLower(strings.TrimSpace(cfg.Browser))
-	switch browser {
+	browser := strings.TrimSpace(cfg.Browser)
+	switch strings.ToLower(browser) {
 	case "chrome":
 		// User explicitly requested installed Chrome
 		if path := detectChrome(); path != "" {

@@ -990,8 +990,15 @@ func flowsUseClearState(flows []flow.Flow) bool {
 // If --parallel N is specified with --auto-start-emulator, this will start additional
 // emulators to reach N total devices.
 func determineExecutionMode(cfg *RunConfig, emulatorMgr *emulator.Manager, simulatorMgr *simulator.Manager) (needsParallel bool, deviceIDs []string, err error) {
-	// Web platform runs in a single browser — no device management needed
+	// Web platform: no device management needed, but support --parallel N
 	if strings.ToLower(cfg.Platform) == "web" {
+		if cfg.Parallel > 0 {
+			ids := make([]string, cfg.Parallel)
+			for i := range ids {
+				ids[i] = fmt.Sprintf("browser-%d", i+1)
+			}
+			return true, ids, nil
+		}
 		return false, nil, nil
 	}
 
@@ -1928,13 +1935,21 @@ func executeParallel(cfg *RunConfig, deviceIDs []string, flows []flow.Flow) (*ex
 		platform = "android"
 	}
 
-	// 1. Validate devices
-	if err := validateDevicesAvailable(deviceIDs, platform); err != nil {
-		return nil, err
+	// 1. Validate devices (skip for web — no physical devices)
+	if platform != "web" {
+		if err := validateDevicesAvailable(deviceIDs, platform); err != nil {
+			return nil, err
+		}
 	}
 
 	// 2. Create workers
-	workers, err := createDeviceWorkers(cfg, deviceIDs, platform)
+	var workers []executor.DeviceWorker
+	var err error
+	if platform == "web" {
+		workers, err = createBrowserWorkers(cfg, len(deviceIDs))
+	} else {
+		workers, err = createDeviceWorkers(cfg, deviceIDs, platform)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -2017,6 +2032,40 @@ func createDeviceWorkers(cfg *RunConfig, deviceIDs []string, platform string) ([
 		workers = append(workers, executor.DeviceWorker{
 			ID:       i,
 			DeviceID: deviceID,
+			Driver:   driver,
+			Cleanup:  cleanup,
+		})
+		cleanups = append(cleanups, cleanup)
+	}
+
+	return workers, nil
+}
+
+// createBrowserWorkers creates N browser driver workers for parallel web execution.
+// Each worker gets its own browser process with a separate profile for full isolation.
+func createBrowserWorkers(cfg *RunConfig, count int) ([]executor.DeviceWorker, error) {
+	var workers []executor.DeviceWorker
+	var cleanups []func()
+
+	cleanupAll := func() {
+		for _, cleanup := range cleanups {
+			cleanup()
+		}
+	}
+
+	for i := 0; i < count; i++ {
+		workerID := fmt.Sprintf("browser-%d", i+1)
+		printSetupStep(fmt.Sprintf("[%s] Launching browser...", workerID))
+
+		driver, cleanup, err := CreateWebDriver(cfg)
+		if err != nil {
+			cleanupAll()
+			return nil, fmt.Errorf("failed to launch %s: %w", workerID, err)
+		}
+
+		workers = append(workers, executor.DeviceWorker{
+			ID:       i,
+			DeviceID: workerID,
 			Driver:   driver,
 			Cleanup:  cleanup,
 		})

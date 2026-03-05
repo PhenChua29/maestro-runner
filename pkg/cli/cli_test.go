@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"strconv"
@@ -1993,22 +1994,47 @@ func TestDetermineExecutionMode_WebPlatform(t *testing.T) {
 	os.Stdout, _ = os.Open(os.DevNull)
 	defer func() { os.Stdout = oldStdout }()
 
+	mgr := emulator.NewManager()
+	simMgr := simulator.NewManager()
+
+	// Web without --parallel: single browser mode
 	cfg := &RunConfig{
 		Platform:  "web",
-		Parallel:  2, // Should be ignored for web
+		Parallel:  0,
 		OutputDir: t.TempDir(),
 	}
-	mgr := emulator.NewManager()
-
-	needsParallel, deviceIDs, err := determineExecutionMode(cfg, mgr, simulator.NewManager())
+	needsParallel, deviceIDs, err := determineExecutionMode(cfg, mgr, simMgr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if needsParallel {
-		t.Error("expected needsParallel=false for web platform")
+		t.Error("expected needsParallel=false for web without --parallel")
 	}
 	if len(deviceIDs) != 0 {
 		t.Errorf("expected empty deviceIDs for web, got %v", deviceIDs)
+	}
+
+	// Web with --parallel 3: parallel browser mode
+	cfg = &RunConfig{
+		Platform:  "web",
+		Parallel:  3,
+		OutputDir: t.TempDir(),
+	}
+	needsParallel, deviceIDs, err = determineExecutionMode(cfg, mgr, simMgr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !needsParallel {
+		t.Error("expected needsParallel=true for web with --parallel 3")
+	}
+	if len(deviceIDs) != 3 {
+		t.Errorf("expected 3 browser IDs, got %v", deviceIDs)
+	}
+	for i, id := range deviceIDs {
+		expected := fmt.Sprintf("browser-%d", i+1)
+		if id != expected {
+			t.Errorf("deviceIDs[%d] = %q, want %q", i, id, expected)
+		}
 	}
 }
 
