@@ -1081,6 +1081,148 @@ func (d *Driver) resetPermissions() *core.CommandResult {
 	return successResult("Reset all permissions", nil)
 }
 
+// initPage sets viewport and injects JS helpers on a new page.
+func (d *Driver) initPage(page *rod.Page) error {
+	if err := page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
+		Width:  d.viewportW,
+		Height: d.viewportH,
+	}); err != nil {
+		return err
+	}
+	_, err := page.EvalOnNewDocument(jsHelperCode)
+	return err
+}
+
+// openTab opens a new browser tab.
+func (d *Driver) openTab(step *flow.OpenTabStep) *core.CommandResult {
+	page, err := d.browser.Page(proto.TargetCreateTarget{URL: step.URL})
+	if err != nil {
+		return errorResult(fmt.Errorf("openTab: %w", err), "")
+	}
+
+	if err := d.initPage(page); err != nil {
+		return errorResult(fmt.Errorf("openTab: failed to init page: %w", err), "")
+	}
+
+	if step.URL != "" {
+		page.MustWaitLoad()
+	}
+
+	if step.TabLabel != "" {
+		d.tabLabels[step.TabLabel] = page
+	}
+
+	d.page = page
+	return successResult(fmt.Sprintf("Opened new tab%s", labelSuffix(step.TabLabel)), nil)
+}
+
+// switchTab switches to another browser tab by label, index, or URL pattern.
+func (d *Driver) switchTab(step *flow.SwitchTabStep) *core.CommandResult {
+	// By label
+	if step.TabLabel != "" {
+		page, ok := d.tabLabels[step.TabLabel]
+		if !ok {
+			return errorResult(fmt.Errorf("switchTab: no tab with label %q", step.TabLabel), "")
+		}
+		d.page = page
+		return successResult(fmt.Sprintf("Switched to tab %q", step.TabLabel), nil)
+	}
+
+	// Get all pages
+	pages, err := d.browser.Pages()
+	if err != nil {
+		return errorResult(fmt.Errorf("switchTab: %w", err), "")
+	}
+
+	// By index
+	if step.URL == "" {
+		if step.Index < 0 || step.Index >= len(pages) {
+			return errorResult(fmt.Errorf("switchTab: index %d out of range (have %d tabs)", step.Index, len(pages)), "")
+		}
+		d.page = pages[step.Index]
+		return successResult(fmt.Sprintf("Switched to tab index %d", step.Index), nil)
+	}
+
+	// By URL pattern
+	for _, p := range pages {
+		info, err := p.Info()
+		if err != nil {
+			continue
+		}
+		if matchURLPattern(info.URL, step.URL) {
+			d.page = p
+			return successResult(fmt.Sprintf("Switched to tab matching %q", step.URL), nil)
+		}
+	}
+
+	return errorResult(fmt.Errorf("switchTab: no tab matching URL pattern %q", step.URL), "")
+}
+
+// closeTab closes the current tab and switches to the previous one.
+func (d *Driver) closeTab() *core.CommandResult {
+	pages, err := d.browser.Pages()
+	if err != nil {
+		return errorResult(fmt.Errorf("closeTab: %w", err), "")
+	}
+	if len(pages) <= 1 {
+		return errorResult(fmt.Errorf("closeTab: cannot close the last tab"), "")
+	}
+
+	current := d.page
+
+	// Remove from labels
+	for label, p := range d.tabLabels {
+		if p == current {
+			delete(d.tabLabels, label)
+			break
+		}
+	}
+
+	// Find another page to switch to
+	for _, p := range pages {
+		if p != current {
+			d.page = p
+			break
+		}
+	}
+
+	if err := current.Close(); err != nil {
+		return errorResult(fmt.Errorf("closeTab: %w", err), "")
+	}
+
+	return successResult("Closed tab", nil)
+}
+
+// matchURLPattern checks if a URL matches a simple glob pattern (supports *).
+func matchURLPattern(url, pattern string) bool {
+	if pattern == "" {
+		return false
+	}
+	parts := strings.Split(pattern, "*")
+	if len(parts) == 1 {
+		return strings.Contains(url, pattern)
+	}
+	idx := 0
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		pos := strings.Index(url[idx:], part)
+		if pos < 0 {
+			return false
+		}
+		idx += pos + len(part)
+	}
+	return true
+}
+
+func labelSuffix(label string) string {
+	if label != "" {
+		return fmt.Sprintf(" (label: %s)", label)
+	}
+	return ""
+}
+
 var firstNames = []string{"Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Henry"}
 var lastNames = []string{"Smith", "Johnson", "Brown", "Taylor", "Wilson", "Davis", "Clark", "Lewis"}
 

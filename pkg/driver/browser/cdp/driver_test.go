@@ -3670,3 +3670,208 @@ func TestResetPermissions(t *testing.T) {
 		t.Fatalf("expected success, got error: %v", result.Error)
 	}
 }
+
+// ============================================
+// Tab Management Tests
+// ============================================
+
+func TestOpenTab(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL)
+	defer d.Close()
+
+	step := &flow.OpenTabStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepOpenTab},
+		URL:      ts.URL + "/other",
+		TabLabel: "other",
+	}
+	result := d.Execute(step)
+	if !result.Success {
+		t.Fatalf("expected success, got error: %v", result.Error)
+	}
+	if !strings.Contains(result.Message, "label: other") {
+		t.Errorf("expected label in message, got: %s", result.Message)
+	}
+
+	// Verify we're on the new tab
+	title, _ := d.page.Eval(`() => document.title`)
+	if title == nil || title.Value.Str() != "Other Page" {
+		t.Errorf("expected Other Page title, got: %v", title)
+	}
+}
+
+func TestSwitchTabByLabel(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL)
+	defer d.Close()
+
+	// Label the initial tab
+	d.tabLabels["main"] = d.page
+
+	// Open a new tab
+	d.Execute(&flow.OpenTabStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepOpenTab},
+		URL:      ts.URL + "/other",
+		TabLabel: "other",
+	})
+
+	// Switch back to main
+	result := d.Execute(&flow.SwitchTabStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepSwitchTab},
+		TabLabel: "main",
+	})
+	if !result.Success {
+		t.Fatalf("expected success, got error: %v", result.Error)
+	}
+
+	title, _ := d.page.Eval(`() => document.title`)
+	if title == nil || title.Value.Str() != "Test Page" {
+		t.Errorf("expected Test Page, got: %v", title)
+	}
+}
+
+func TestSwitchTabByIndex(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL)
+	defer d.Close()
+
+	// Open a second tab
+	d.Execute(&flow.OpenTabStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepOpenTab},
+		URL:      ts.URL + "/other",
+	})
+
+	// Switch to first tab (index 0)
+	result := d.Execute(&flow.SwitchTabStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepSwitchTab},
+		Index:    0,
+	})
+	if !result.Success {
+		t.Fatalf("expected success, got error: %v", result.Error)
+	}
+}
+
+func TestSwitchTabByURL(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL)
+	defer d.Close()
+
+	// Open a second tab
+	d.Execute(&flow.OpenTabStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepOpenTab},
+		URL:      ts.URL + "/other",
+	})
+
+	// Switch to tab matching */other
+	result := d.Execute(&flow.SwitchTabStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepSwitchTab},
+		URL:      "*/other",
+	})
+	if !result.Success {
+		t.Fatalf("expected success, got error: %v", result.Error)
+	}
+
+	title, _ := d.page.Eval(`() => document.title`)
+	if title == nil || title.Value.Str() != "Other Page" {
+		t.Errorf("expected Other Page, got: %v", title)
+	}
+}
+
+func TestSwitchTabLabelNotFound(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL)
+	defer d.Close()
+
+	result := d.Execute(&flow.SwitchTabStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepSwitchTab},
+		TabLabel: "nonexistent",
+	})
+	if result.Success {
+		t.Fatal("expected error for unknown label")
+	}
+}
+
+func TestSwitchTabIndexOutOfRange(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL)
+	defer d.Close()
+
+	result := d.Execute(&flow.SwitchTabStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepSwitchTab},
+		Index:    99,
+	})
+	if result.Success {
+		t.Fatal("expected error for out-of-range index")
+	}
+}
+
+func TestCloseTab(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL)
+	defer d.Close()
+
+	// Open a second tab
+	d.Execute(&flow.OpenTabStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepOpenTab},
+		URL:      ts.URL + "/other",
+		TabLabel: "other",
+	})
+
+	// Close current tab (the second one)
+	result := d.Execute(&flow.CloseTabStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepCloseTab},
+	})
+	if !result.Success {
+		t.Fatalf("expected success, got error: %v", result.Error)
+	}
+
+	// Should have switched back to the remaining tab
+	title, _ := d.page.Eval(`() => document.title`)
+	if title == nil || title.Value.Str() != "Test Page" {
+		t.Errorf("expected Test Page after close, got: %v", title)
+	}
+
+	// Label should be removed
+	if _, ok := d.tabLabels["other"]; ok {
+		t.Error("expected label 'other' to be removed")
+	}
+}
+
+func TestCloseLastTab(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL)
+	defer d.Close()
+
+	result := d.Execute(&flow.CloseTabStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepCloseTab},
+	})
+	if result.Success {
+		t.Fatal("expected error when closing last tab")
+	}
+}
+
+func TestMatchURLPattern(t *testing.T) {
+	tests := []struct {
+		url, pattern string
+		want         bool
+	}{
+		{"https://example.com/callback", "*/callback", true},
+		{"https://example.com/oauth/callback?code=123", "*/oauth/callback*", true},
+		{"https://example.com/other", "*/callback", false},
+		{"https://example.com/page", "example.com", true},
+		{"https://example.com/page", "", false},
+	}
+	for _, tt := range tests {
+		if got := matchURLPattern(tt.url, tt.pattern); got != tt.want {
+			t.Errorf("matchURLPattern(%q, %q) = %v, want %v", tt.url, tt.pattern, got, tt.want)
+		}
+	}
+}

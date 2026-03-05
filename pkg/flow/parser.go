@@ -235,6 +235,7 @@ func isStepType(key string) bool {
 		StepRunScript, StepEvalScript, StepEvalBrowserScript,
 		StepSetCookies, StepGetCookies, StepSaveAuthState, StepLoadAuthState,
 		StepUploadFile, StepWaitForDownload, StepGrantPermissions, StepResetPermissions,
+		StepOpenTab, StepSwitchTab, StepCloseTab,
 		StepTakeScreenshot, StepStartRecording,
 		StepStopRecording, StepAddMedia, StepPressKey, StepWaitForAnimationToEnd,
 		StepDefineVariables:
@@ -702,6 +703,31 @@ func decodeStep(stepType StepType, valueNode *yaml.Node, sourcePath string) (Ste
 	case StepResetPermissions:
 		var s ResetPermissionsStep
 		s.StepType = StepResetPermissions
+		return &s, nil
+
+	case StepOpenTab:
+		var s OpenTabStep
+		if valueNode.Kind == yaml.ScalarNode {
+			s.URL = valueNode.Value
+		} else if err := valueNode.Decode(&s); err != nil {
+			return nil, wrapParseError(sourcePath, valueNode.Line, err)
+		}
+		s.StepType = StepOpenTab
+		return &s, nil
+
+	case StepSwitchTab:
+		var s SwitchTabStep
+		if valueNode.Kind == yaml.ScalarNode {
+			s.TabLabel = valueNode.Value
+		} else if err := valueNode.Decode(&s); err != nil {
+			return nil, wrapParseError(sourcePath, valueNode.Line, err)
+		}
+		s.StepType = StepSwitchTab
+		return &s, nil
+
+	case StepCloseTab:
+		var s CloseTabStep
+		s.StepType = StepCloseTab
 		return &s, nil
 
 	case StepTakeScreenshot:

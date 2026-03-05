@@ -80,6 +80,11 @@ const (
 	StepGrantPermissions StepType = "grantPermissions"
 	StepResetPermissions StepType = "resetPermissions"
 
+	// Browser Tab Management (web-only)
+	StepOpenTab   StepType = "openTab"
+	StepSwitchTab StepType = "switchTab"
+	StepCloseTab  StepType = "closeTab"
+
 	// Media
 	StepTakeScreenshot StepType = "takeScreenshot"
 	StepStartRecording StepType = "startRecording"
@@ -575,6 +580,30 @@ type GrantPermissionsStep struct {
 
 // ResetPermissionsStep resets all browser permissions.
 type ResetPermissionsStep struct {
+	BaseStep `yaml:",inline"`
+}
+
+// ============================================
+// Browser Tab Management Steps (web-only)
+// ============================================
+
+// OpenTabStep opens a new browser tab.
+type OpenTabStep struct {
+	BaseStep `yaml:",inline"`
+	URL      string `yaml:"url"`
+	TabLabel string `yaml:"tabLabel"` // Optional name for switching back
+}
+
+// SwitchTabStep switches to another browser tab.
+type SwitchTabStep struct {
+	BaseStep `yaml:",inline"`
+	TabLabel string `yaml:"tabLabel"` // Switch by label
+	Index    int    `yaml:"index"`    // Switch by index (0-based)
+	URL      string `yaml:"url"`      // Switch by URL pattern match
+}
+
+// CloseTabStep closes the current tab and switches to the previous one.
+type CloseTabStep struct {
 	BaseStep `yaml:",inline"`
 }
 

@@ -50,6 +50,9 @@ type Driver struct {
 	dialogCh chan *proto.PageJavascriptDialogOpening
 	stopCh   chan struct{}
 
+	// Tab management
+	tabLabels map[string]*rod.Page // label → page mapping
+
 	// Selector validation dedup
 	warnedFields map[string]bool
 
@@ -141,6 +144,7 @@ func New(cfg Config) (*Driver, error) {
 		viewportH:     cfg.ViewportH,
 		dialogCh:      make(chan *proto.PageJavascriptDialogOpening, 10),
 		stopCh:        make(chan struct{}),
+		tabLabels:     make(map[string]*rod.Page),
 		warnedFields:  make(map[string]bool),
 	}
 
@@ -412,6 +416,14 @@ func (d *Driver) Execute(step flow.Step) *core.CommandResult {
 		result = d.grantPermissions(s)
 	case *flow.ResetPermissionsStep:
 		result = d.resetPermissions()
+
+	// Tab management
+	case *flow.OpenTabStep:
+		result = d.openTab(s)
+	case *flow.SwitchTabStep:
+		result = d.switchTab(s)
+	case *flow.CloseTabStep:
+		result = d.closeTab()
 
 	// Unsupported — mobile-only or not applicable to web
 	case *flow.SetAirplaneModeStep, *flow.ToggleAirplaneModeStep:
