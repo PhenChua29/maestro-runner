@@ -403,6 +403,16 @@ func (d *Driver) Execute(step flow.Step) *core.CommandResult {
 	case *flow.LoadAuthStateStep:
 		result = d.loadAuthState(s)
 
+	// File & permissions
+	case *flow.UploadFileStep:
+		result = d.uploadFile(s)
+	case *flow.WaitForDownloadStep:
+		result = d.waitForDownload(s)
+	case *flow.GrantPermissionsStep:
+		result = d.grantPermissions(s)
+	case *flow.ResetPermissionsStep:
+		result = d.resetPermissions()
+
 	// Unsupported — mobile-only or not applicable to web
 	case *flow.SetAirplaneModeStep, *flow.ToggleAirplaneModeStep:
 		result = unsupportedResult("airplane mode is not supported on web platform")

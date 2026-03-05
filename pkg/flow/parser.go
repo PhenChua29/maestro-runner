@@ -234,6 +234,7 @@ func isStepType(key string) bool {
 		StepTravel, StepOpenLink, StepOpenBrowser, StepRepeat, StepRetry, StepRunFlow,
 		StepRunScript, StepEvalScript, StepEvalBrowserScript,
 		StepSetCookies, StepGetCookies, StepSaveAuthState, StepLoadAuthState,
+		StepUploadFile, StepWaitForDownload, StepGrantPermissions, StepResetPermissions,
 		StepTakeScreenshot, StepStartRecording,
 		StepStopRecording, StepAddMedia, StepPressKey, StepWaitForAnimationToEnd,
 		StepDefineVariables:
@@ -670,6 +671,37 @@ func decodeStep(stepType StepType, valueNode *yaml.Node, sourcePath string) (Ste
 			return nil, wrapParseError(sourcePath, valueNode.Line, err)
 		}
 		s.StepType = StepLoadAuthState
+		return &s, nil
+
+	case StepUploadFile:
+		var s UploadFileStep
+		if err := valueNode.Decode(&s); err != nil {
+			return nil, wrapParseError(sourcePath, valueNode.Line, err)
+		}
+		s.StepType = StepUploadFile
+		return &s, nil
+
+	case StepWaitForDownload:
+		var s WaitForDownloadStep
+		if valueNode.Kind == yaml.ScalarNode {
+			s.SaveTo = valueNode.Value
+		} else if err := valueNode.Decode(&s); err != nil {
+			return nil, wrapParseError(sourcePath, valueNode.Line, err)
+		}
+		s.StepType = StepWaitForDownload
+		return &s, nil
+
+	case StepGrantPermissions:
+		var s GrantPermissionsStep
+		if err := valueNode.Decode(&s); err != nil {
+			return nil, wrapParseError(sourcePath, valueNode.Line, err)
+		}
+		s.StepType = StepGrantPermissions
+		return &s, nil
+
+	case StepResetPermissions:
+		var s ResetPermissionsStep
+		s.StepType = StepResetPermissions
 		return &s, nil
 
 	case StepTakeScreenshot:

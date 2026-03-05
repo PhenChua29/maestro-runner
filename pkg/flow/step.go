@@ -74,6 +74,12 @@ const (
 	StepSaveAuthState StepType = "saveAuthState"
 	StepLoadAuthState StepType = "loadAuthState"
 
+	// Browser File & Permissions (web-only)
+	StepUploadFile       StepType = "uploadFile"
+	StepWaitForDownload  StepType = "waitForDownload"
+	StepGrantPermissions StepType = "grantPermissions"
+	StepResetPermissions StepType = "resetPermissions"
+
 	// Media
 	StepTakeScreenshot StepType = "takeScreenshot"
 	StepStartRecording StepType = "startRecording"
@@ -539,6 +545,37 @@ type SaveAuthStateStep struct {
 type LoadAuthStateStep struct {
 	BaseStep `yaml:",inline"`
 	Path     string `yaml:"path"` // Input file path
+}
+
+// ============================================
+// Browser File & Permissions Steps (web-only)
+// ============================================
+
+// UploadFileStep sets files on a file input element.
+type UploadFileStep struct {
+	BaseStep `yaml:",inline"`
+	Selector Selector `yaml:",inline"`
+	Path     string   `yaml:"path"`  // Single file path
+	Paths    []string `yaml:"paths"` // Multiple file paths
+}
+
+// WaitForDownloadStep waits for a browser download to complete.
+type WaitForDownloadStep struct {
+	BaseStep       `yaml:",inline"`
+	SaveTo         string `yaml:"saveTo"`         // Directory to save downloaded file
+	AssertFilename string `yaml:"assertFilename"` // Expected filename (optional)
+}
+
+// GrantPermissionsStep grants browser permissions (notifications, camera, etc).
+type GrantPermissionsStep struct {
+	BaseStep    `yaml:",inline"`
+	Permissions []string `yaml:"permissions"`
+	Origin      string   `yaml:"origin"` // Optional: specific origin
+}
+
+// ResetPermissionsStep resets all browser permissions.
+type ResetPermissionsStep struct {
+	BaseStep `yaml:",inline"`
 }
 
 // ============================================

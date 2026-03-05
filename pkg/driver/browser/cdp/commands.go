@@ -954,6 +954,133 @@ func (d *Driver) loadAuthState(step *flow.LoadAuthStateStep) *core.CommandResult
 		step.Path, len(state.Cookies), len(state.LocalStorage), len(state.SessionStorage)), nil)
 }
 
+// uploadFile sets files on a file input element.
+func (d *Driver) uploadFile(step *flow.UploadFileStep) *core.CommandResult {
+	paths := step.Paths
+	if step.Path != "" {
+		paths = append([]string{step.Path}, paths...)
+	}
+	if len(paths) == 0 {
+		return errorResult(fmt.Errorf("uploadFile: no file path(s) provided"), "")
+	}
+
+	// Verify files exist
+	for _, p := range paths {
+		if _, err := os.Stat(p); err != nil {
+			return errorResult(fmt.Errorf("uploadFile: file not found: %s", p), "")
+		}
+	}
+
+	elem, info, err := d.findElement(step.Selector, false, step.TimeoutMs)
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("Failed to find file input %s", step.Selector.DescribeQuoted()))
+	}
+
+	if err := elem.SetFiles(paths); err != nil {
+		return errorResult(fmt.Errorf("uploadFile: %w", err), "")
+	}
+
+	return successResult(fmt.Sprintf("Uploaded %d file(s) to %s", len(paths), step.Selector.DescribeQuoted()), info)
+}
+
+// waitForDownload waits for a browser download to complete.
+func (d *Driver) waitForDownload(step *flow.WaitForDownloadStep) *core.CommandResult {
+	downloadDir := step.SaveTo
+	if downloadDir == "" {
+		downloadDir = os.TempDir()
+	}
+	if err := os.MkdirAll(downloadDir, 0o750); err != nil {
+		return errorResult(fmt.Errorf("waitForDownload: failed to create directory: %w", err), "")
+	}
+
+	// Enable download behavior
+	err := proto.BrowserSetDownloadBehavior{
+		Behavior:      "allowAndName",
+		DownloadPath:  downloadDir,
+		EventsEnabled: true,
+	}.Call(d.browser)
+	if err != nil {
+		return errorResult(fmt.Errorf("waitForDownload: failed to set download behavior: %w", err), "")
+	}
+
+	timeoutMs := step.TimeoutMs
+	if timeoutMs <= 0 {
+		timeoutMs = 30000
+	}
+
+	// Wait for download to complete
+	doneCh := make(chan string, 1)
+	var filename string
+
+	wait := d.browser.EachEvent(func(e *proto.BrowserDownloadWillBegin) {
+		filename = e.SuggestedFilename
+	}, func(e *proto.BrowserDownloadProgress) bool {
+		if e.State == proto.BrowserDownloadProgressStateCompleted {
+			// Rename from GUID to suggested filename
+			src := filepath.Join(downloadDir, e.GUID)
+			dst := filepath.Join(downloadDir, filename)
+			if filename != "" {
+				_ = os.Rename(src, dst)
+			}
+			doneCh <- filename
+			return true // stop listening
+		}
+		if e.State == proto.BrowserDownloadProgressStateCanceled {
+			doneCh <- ""
+			return true
+		}
+		return false // keep listening
+	})
+	go wait()
+
+	select {
+	case name := <-doneCh:
+		if name == "" {
+			return errorResult(fmt.Errorf("waitForDownload: download was canceled"), "")
+		}
+		if step.AssertFilename != "" && name != step.AssertFilename {
+			return errorResult(fmt.Errorf("waitForDownload: expected filename %q, got %q", step.AssertFilename, name), "")
+		}
+		msg := fmt.Sprintf("Downloaded %s to %s", name, downloadDir)
+		result := successResult(msg, nil)
+		result.Data = filepath.Join(downloadDir, name)
+		return result
+	case <-time.After(time.Duration(timeoutMs) * time.Millisecond):
+		return errorResult(fmt.Errorf("waitForDownload: timed out after %dms", timeoutMs), "")
+	}
+}
+
+// grantPermissions grants browser permissions.
+func (d *Driver) grantPermissions(step *flow.GrantPermissionsStep) *core.CommandResult {
+	if len(step.Permissions) == 0 {
+		return errorResult(fmt.Errorf("grantPermissions: no permissions provided"), "")
+	}
+
+	perms := make([]proto.BrowserPermissionType, len(step.Permissions))
+	for i, p := range step.Permissions {
+		perms[i] = proto.BrowserPermissionType(p)
+	}
+
+	req := proto.BrowserGrantPermissions{Permissions: perms}
+	if step.Origin != "" {
+		req.Origin = step.Origin
+	}
+
+	if err := req.Call(d.browser); err != nil {
+		return errorResult(fmt.Errorf("grantPermissions: %w", err), "")
+	}
+
+	return successResult(fmt.Sprintf("Granted %d permission(s)", len(step.Permissions)), nil)
+}
+
+// resetPermissions resets all browser permissions.
+func (d *Driver) resetPermissions() *core.CommandResult {
+	if err := (proto.BrowserResetPermissions{}).Call(d.browser); err != nil {
+		return errorResult(fmt.Errorf("resetPermissions: %w", err), "")
+	}
+	return successResult("Reset all permissions", nil)
+}
+
 var firstNames = []string{"Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Henry"}
 var lastNames = []string{"Smith", "Johnson", "Brown", "Taylor", "Wilson", "Davis", "Clark", "Lewis"}
 

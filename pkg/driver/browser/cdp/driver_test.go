@@ -13,6 +13,7 @@ import (
 	"github.com/devicelab-dev/maestro-runner/pkg/core"
 	"github.com/devicelab-dev/maestro-runner/pkg/flow"
 	"github.com/go-rod/rod/lib/input"
+	"github.com/go-rod/rod/lib/proto"
 )
 
 // testPage returns a minimal HTML page for testing.
@@ -87,6 +88,30 @@ func newTestServer() *httptest.Server {
 		fmt.Fprint(w, `<!DOCTYPE html><html><body>
 			<button id="alert-btn" onclick="alert('Hello!')">Show Alert</button>
 		</body></html>`)
+	})
+	mux.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<input id="file-input" type="file" multiple>
+			<div id="file-name"></div>
+			<script>
+				document.getElementById('file-input').addEventListener('change', function(e) {
+					var names = Array.from(e.target.files).map(f => f.name).join(', ');
+					document.getElementById('file-name').textContent = names;
+				});
+			</script>
+		</body></html>`)
+	})
+	mux.HandleFunc("/download-page", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<a id="download-link" href="/download-file">Download</a>
+		</body></html>`)
+	})
+	mux.HandleFunc("/download-file", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Disposition", "attachment; filename=test-file.txt")
+		w.Header().Set("Content-Type", "application/octet-stream")
+		fmt.Fprint(w, "download content")
 	})
 	return httptest.NewServer(mux)
 }
@@ -3434,5 +3459,214 @@ func TestLoadAuthStateMissingFile(t *testing.T) {
 	result := d.Execute(step)
 	if result.Success {
 		t.Fatal("expected error for missing file")
+	}
+}
+
+// ============================================
+// File Upload, Download & Permission Tests
+// ============================================
+
+func TestUploadFile(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL+"/upload")
+	defer d.Close()
+
+	// Create a temp file to upload
+	tmpFile := t.TempDir() + "/test-upload.txt"
+	os.WriteFile(tmpFile, []byte("test content"), 0o600)
+
+	step := &flow.UploadFileStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepUploadFile},
+		Selector: flow.Selector{CSS: "#file-input"},
+		Path:     tmpFile,
+	}
+	result := d.Execute(step)
+	if !result.Success {
+		t.Fatalf("expected success, got error: %v", result.Error)
+	}
+	if !strings.Contains(result.Message, "1 file") {
+		t.Errorf("expected message about 1 file, got: %s", result.Message)
+	}
+
+	// Verify the file name appeared in the page
+	time.Sleep(200 * time.Millisecond)
+	nameElem, _ := d.page.Element("#file-name")
+	text, _ := nameElem.Text()
+	if !strings.Contains(text, "test-upload.txt") {
+		t.Errorf("expected file name in page, got: %s", text)
+	}
+}
+
+func TestUploadFileMultiple(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL+"/upload")
+	defer d.Close()
+
+	dir := t.TempDir()
+	os.WriteFile(dir+"/a.txt", []byte("a"), 0o600)
+	os.WriteFile(dir+"/b.txt", []byte("b"), 0o600)
+
+	step := &flow.UploadFileStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepUploadFile},
+		Selector: flow.Selector{CSS: "#file-input"},
+		Paths:    []string{dir + "/a.txt", dir + "/b.txt"},
+	}
+	result := d.Execute(step)
+	if !result.Success {
+		t.Fatalf("expected success, got error: %v", result.Error)
+	}
+	if !strings.Contains(result.Message, "2 file") {
+		t.Errorf("expected message about 2 files, got: %s", result.Message)
+	}
+}
+
+func TestUploadFileNoPaths(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL+"/upload")
+	defer d.Close()
+
+	step := &flow.UploadFileStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepUploadFile},
+		Selector: flow.Selector{CSS: "#file-input"},
+	}
+	result := d.Execute(step)
+	if result.Success {
+		t.Fatal("expected error for no paths")
+	}
+}
+
+func TestUploadFileMissing(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL+"/upload")
+	defer d.Close()
+
+	step := &flow.UploadFileStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepUploadFile},
+		Selector: flow.Selector{CSS: "#file-input"},
+		Path:     "/nonexistent/file.txt",
+	}
+	result := d.Execute(step)
+	if result.Success {
+		t.Fatal("expected error for missing file")
+	}
+}
+
+func TestWaitForDownload(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL+"/download-page")
+	defer d.Close()
+
+	downloadDir := t.TempDir()
+
+	step := &flow.WaitForDownloadStep{
+		BaseStep:       flow.BaseStep{StepType: flow.StepWaitForDownload, TimeoutMs: 10000},
+		SaveTo:         downloadDir,
+		AssertFilename: "test-file.txt",
+	}
+
+	// Click the download link after a short delay
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		el, err := d.page.Element("#download-link")
+		if err == nil {
+			_ = el.Click(proto.InputMouseButtonLeft, 1)
+		}
+	}()
+
+	result := d.Execute(step)
+	if !result.Success {
+		t.Fatalf("expected success, got error: %v", result.Error)
+	}
+	if !strings.Contains(result.Message, "test-file.txt") {
+		t.Errorf("expected filename in message, got: %s", result.Message)
+	}
+
+	// Verify file was saved
+	data, err := os.ReadFile(downloadDir + "/test-file.txt")
+	if err != nil {
+		t.Fatalf("failed to read downloaded file: %v", err)
+	}
+	if string(data) != "download content" {
+		t.Errorf("unexpected file content: %s", string(data))
+	}
+}
+
+func TestWaitForDownloadTimeout(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL)
+	defer d.Close()
+
+	step := &flow.WaitForDownloadStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepWaitForDownload, TimeoutMs: 500},
+		SaveTo:   t.TempDir(),
+	}
+
+	result := d.Execute(step)
+	if result.Success {
+		t.Fatal("expected timeout error")
+	}
+	if !strings.Contains(result.Error.Error(), "timed out") {
+		t.Errorf("expected timeout error, got: %v", result.Error)
+	}
+}
+
+func TestGrantPermissions(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL)
+	defer d.Close()
+
+	step := &flow.GrantPermissionsStep{
+		BaseStep:    flow.BaseStep{StepType: flow.StepGrantPermissions},
+		Permissions: []string{"notifications", "geolocation"},
+	}
+	result := d.Execute(step)
+	if !result.Success {
+		t.Fatalf("expected success, got error: %v", result.Error)
+	}
+	if !strings.Contains(result.Message, "2 permission") {
+		t.Errorf("expected message about 2 permissions, got: %s", result.Message)
+	}
+}
+
+func TestGrantPermissionsEmpty(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL)
+	defer d.Close()
+
+	step := &flow.GrantPermissionsStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepGrantPermissions},
+	}
+	result := d.Execute(step)
+	if result.Success {
+		t.Fatal("expected error for empty permissions")
+	}
+}
+
+func TestResetPermissions(t *testing.T) {
+	ts := newTestServer()
+	defer ts.Close()
+	d := newTestDriver(t, ts.URL)
+	defer d.Close()
+
+	// Grant first, then reset
+	d.Execute(&flow.GrantPermissionsStep{
+		BaseStep:    flow.BaseStep{StepType: flow.StepGrantPermissions},
+		Permissions: []string{"notifications"},
+	})
+
+	step := &flow.ResetPermissionsStep{
+		BaseStep: flow.BaseStep{StepType: flow.StepResetPermissions},
+	}
+	result := d.Execute(step)
+	if !result.Success {
+		t.Fatalf("expected success, got error: %v", result.Error)
 	}
 }
