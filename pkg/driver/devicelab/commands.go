@@ -54,7 +54,7 @@ func (d *Driver) tapOn(step *flow.TapOnStep) *core.CommandResult {
 		}
 		strategies := append(clickableStrategies, allStrategies...)
 		timeout := d.calculateTimeout(step.IsOptional(), step.TimeoutMs)
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(d.parentContext(), timeout)
 		defer cancel()
 
 		var lastErr error
@@ -1627,7 +1627,7 @@ func (d *Driver) waitUntil(step *flow.WaitUntilStep) *core.CommandResult {
 	}
 
 	timeout := time.Duration(timeoutMs) * time.Millisecond
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(d.parentContext(), timeout)
 	defer cancel()
 
 	for {
