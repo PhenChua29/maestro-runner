@@ -11,7 +11,7 @@ import (
 
 // Build info — set at build time via -ldflags.
 var (
-	Version   = "1.0.1"
+	Version   = "1.0.9"
 	Commit    = "unknown"
 	BuildDate = "unknown"
 )

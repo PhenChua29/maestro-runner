@@ -474,42 +474,29 @@ type RunConfig struct {
 	NoFlutterFallback bool // Disable automatic Flutter VM Service fallback
 }
 
+func hyperlink(url, text string) string {
+	if colorsEnabled {
+		return "\x1b]8;;" + url + "\x07" + text + "\x1b]8;;\x07"
+	}
+	return text
+}
+
 func printBanner() {
-	// Make DeviceLab.dev clickable and colored (cyan)
-	// OSC 8 hyperlink format: ESC]8;;URL BEL TEXT ESC]8;; BEL
-	deviceLabLink := "\x1b]8;;https://devicelab.dev\x07" + color(colorCyan) + "DeviceLab.dev" + color(colorReset) + "\x1b]8;;\x07"
-
-	// Make GitHub link clickable
-	githubLink := "\x1b]8;;https://github.com/devicelab-dev/maestro-runner\x07Star us on GitHub\x1b]8;;\x07"
-
-	// Box width is 64 characters (between the ║ symbols)
-	// Calculate padding for version line
-	// Visible text: "  maestro-runner " + Version + " - by DeviceLab.dev"
-	versionLineVisible := 16 + len(Version) + 20 // "  maestro-runner " + version + " - by DeviceLab.dev"
-	versionPadding := strings.Repeat(" ", 64-versionLineVisible)
-
-	// Calculate padding for GitHub line
-	// Visible text: "  ⭐ Star us on GitHub"
-	githubLineVisible := 21 // "  ⭐ " + "Star us on GitHub" (⭐ is 3 bytes but 1 visual char)
-	githubPadding := strings.Repeat(" ", 64-githubLineVisible)
+	deviceLabLink := hyperlink("https://devicelab.dev", color(colorCyan)+"DeviceLab.dev"+color(colorReset))
+	githubLink := hyperlink("https://github.com/devicelab-dev/maestro-runner", "Star us on GitHub")
 
 	fmt.Println()
-	fmt.Println("╔═══════════════════════════════════════════════════════════════════╗")
-	fmt.Printf("║  maestro-runner %s - by %s%s   ║\n", Version, deviceLabLink, versionPadding)
-	fmt.Println("║  Fast, lightweight Maestro test runner                            ║")
-	fmt.Printf("║  ⭐ %s%s  ║\n", githubLink, githubPadding)
-	fmt.Println("╚═══════════════════════════════════════════════════════════════════╝")
+	fmt.Printf("  maestro-runner %s - by %s\n", Version, deviceLabLink)
+	fmt.Println("  Fast, lightweight Maestro test runner")
+	fmt.Printf("  %s\n", githubLink)
 	fmt.Println()
 }
 
 func printFooter() {
-	// Make DeviceLab.dev clickable and colored (cyan)
-	deviceLabLink := "\x1b]8;;https://devicelab.dev\x07" + color(colorCyan) + "DeviceLab.dev" + color(colorReset) + "\x1b]8;;\x07"
+	deviceLabLink := hyperlink("https://devicelab.dev", color(colorCyan)+"DeviceLab.dev"+color(colorReset))
 
 	fmt.Println()
-	fmt.Println("╔══════════════════════════════════════════════════════════════════════════╗")
-	fmt.Printf("║ Built by %s - Turn Your Devices Into a Distributed Device Lab ║\n", deviceLabLink)
-	fmt.Println("╚══════════════════════════════════════════════════════════════════════════╝")
+	fmt.Printf("  Built by %s - Turn Your Devices Into a Distributed Device Lab\n", deviceLabLink)
 	fmt.Println()
 }
 

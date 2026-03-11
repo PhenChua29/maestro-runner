@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.9] - 2026-03-11
+
 ### Added
+- **Desktop browser testing** — new `--platform web` with built-in CDP driver for Chrome/Chromium. Headless by default, `--headed` for visible browser. Supports parallel browser execution
+  ```bash
+  maestro-runner --platform web test flow.yaml
+  maestro-runner --platform web --headed --browser chrome test flow.yaml
+  maestro-runner --platform web test --parallel 3 flows/
+  ```
+- **Browser-specific commands** — `evalBrowserScript`, `setCookies`, `getCookies`, `saveAuthState`, `loadAuthState`, `openTab`, `switchTab`, `closeTab`, `mockNetwork`, `blockNetwork`, `setNetworkConditions`, `waitForRequest`, `clearNetworkMocks`, `uploadFile`, `waitForDownload`, `grantPermissions`, `resetPermissions`, `getConsoleLogs`, `clearConsoleLogs`, `assertNoJSErrors`, `runBrowserScript`
+- **Browser selectors** — `css` and `xpath` selectors for web elements, in addition to `text` and `id`
+  ```yaml
+  - tapOn:
+      css: "button.submit"
+  - inputText:
+      id: "username"
+      text: "hello"
+  ```
+- `--no-app-install` flag — skip app installation even if `--app-file` is provided. Useful when the app is already installed
+  ```bash
+  maestro-runner --no-app-install --app-file app.apk test flow.yaml
+  ```
+- `--no-driver-install` flag — skip driver installation (UIAutomator2, WDA, DeviceLab). Useful when drivers are already installed on the device
+  ```bash
+  maestro-runner --no-driver-install test flow.yaml
+  ```
 - Flutter VM Service fallback for element finding — when the native driver (WDA/UIAutomator2) can't find a Flutter element, automatically discovers the Dart VM Service and searches the semantics/widget trees in parallel. Works on Android and iOS simulators. Non-Flutter apps pay only one log read on first miss, then fully bypassed. Disable with `--no-flutter-fallback`
 - Flutter widget tree cross-reference — when semantics tree search fails, falls back to widget tree analysis (hint text, identifiers, suffix icons) and cross-references with semantics nodes for coordinates
 - DeviceLab Android driver — WebSocket-based on-device automation with bounds stabilization for animated elements and special character handling. ~2x faster than UIAutomator2
@@ -74,6 +99,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cloud Providers section in README with TestingBot setup guide
 
 ### Fixed
+- iOS simulator no longer requires `--team-id` — simulators don't need code signing, so the validation now only enforces `--team-id` for real devices
+  ```bash
+  # Before: required --team-id even for simulators
+  # Now: just works
+  maestro-runner --platform ios --start-simulator <UDID> test flow.yaml
+  ```
 - `runFlow: when` conditions with variable expressions (e.g., `${output.element.id}`) were never expanded, causing conditions to always evaluate as false and silently skip conditional blocks
 - iOS real device: `acceptAlertButtonSelector` matched "Don't Allow" instead of "Allow" — `CONTAINS[c] 'Allow'` matched both buttons, causing WDA to reject permission dialogs. Changed to `BEGINSWITH[c] 'Allow'` with `OK` fallback for older iOS versions
 - `AllocatePort` was ignoring existing port allocations and `assertCondition` had duplicate `timeout` yaml tag
