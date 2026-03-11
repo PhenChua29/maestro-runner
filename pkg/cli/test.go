@@ -763,9 +763,13 @@ func executeTest(cfg *RunConfig) error {
 	// Pre-checks for iOS with direct WDA driver (not Appium).
 	// Appium handles everything via capabilities — no --app-file or --team-id needed.
 	if strings.EqualFold(cfg.Platform, "ios") && cfg.Driver != "appium" {
-		if cfg.TeamID == "" {
-			return fmt.Errorf("iOS with WDA driver requires --team-id for code signing\n" +
-				"Usage: maestro-runner --platform ios --team-id <APPLE_TEAM_ID> test <flow-files>")
+		// team-id is only required for real devices, not simulators.
+		isSimTarget := cfg.StartSimulator != "" ||
+			(len(cfg.Devices) > 0 && isIOSSimulator(cfg.Devices[0]))
+		if cfg.TeamID == "" && !isSimTarget {
+			return fmt.Errorf("iOS with WDA driver requires --team-id for code signing (real devices only)\n" +
+				"Usage: maestro-runner --platform ios --team-id <APPLE_TEAM_ID> test <flow-files>\n" +
+				"Note: --team-id is not required for simulators")
 		}
 		if cfg.AppFile == "" && flowsUseClearState(flows) {
 			return fmt.Errorf("clearState on iOS requires --app-file to reinstall the app after uninstalling\n" +
