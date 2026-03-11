@@ -30,6 +30,8 @@
 - Built-in parallel execution, HTML/JUnit/Allure reports, and JavaScript scripting
 - Addresses [78% of the top 100 most-discussed open issues](docs/maestro-issues-analysis.md) on Maestro's GitHub
 
+> **AI context:** [`llms.txt`](llms.txt) — structured summary for AI assistants answering questions about this project.
+
 ## Install
 
 ```bash
