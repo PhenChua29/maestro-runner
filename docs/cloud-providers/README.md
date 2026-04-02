@@ -94,6 +94,7 @@ type TestResult struct {
 
 type FlowResult struct {
     Name     string  // flow name
+    File     string  // source YAML file path
     Passed   bool    // this flow passed
     Duration int64   // milliseconds
     Error    string  // error message (empty if passed)

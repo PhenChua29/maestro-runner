@@ -37,6 +37,7 @@ type TestResult struct {
 // FlowResult contains the outcome of a single flow.
 type FlowResult struct {
 	Name     string
+	File     string // source YAML file path
 	Passed   bool
 	Duration int64 // milliseconds
 	Error    string

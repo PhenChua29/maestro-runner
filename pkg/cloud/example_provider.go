@@ -55,7 +55,7 @@ func (p *exampleProvider) ReportResult(appiumURL string, meta map[string]string,
 	//   result.FailedCount - flows failed
 	//   result.Duration    - total ms
 	//   result.OutputDir   - path to log, reports, screenshots
-	//   result.Flows       - per-flow name, pass/fail, duration, error
+	//   result.Flows       - per-flow name, file, pass/fail, duration, error
 
 	return nil
 }

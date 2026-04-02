@@ -862,6 +862,7 @@ func executeTest(cfg *RunConfig) error {
 		for _, f := range result.FlowResults {
 			cloudResult.Flows = append(cloudResult.Flows, cloud.FlowResult{
 				Name:     f.Name,
+				File:     f.SourceFile,
 				Passed:   f.Status == report.StatusPassed,
 				Duration: f.Duration,
 				Error:    f.Error,
