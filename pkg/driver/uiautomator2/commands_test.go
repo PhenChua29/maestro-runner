@@ -1080,9 +1080,9 @@ func TestSetAirplaneModeEnabled(t *testing.T) {
 		t.Errorf("expected success, got error: %v", result.Error)
 	}
 
-	// Check first command sets airplane_mode_on to 1
-	if len(mock.commands) < 1 || mock.commands[0] != "settings put global airplane_mode_on 1" {
-		t.Errorf("expected settings command, got %v", mock.commands)
+	// Should try "cmd connectivity airplane-mode enable" first (Android 11+)
+	if len(mock.commands) < 1 || mock.commands[0] != "cmd connectivity airplane-mode enable" {
+		t.Errorf("expected cmd connectivity command, got %v", mock.commands)
 	}
 }
 
@@ -1097,9 +1097,9 @@ func TestSetAirplaneModeDisabled(t *testing.T) {
 		t.Errorf("expected success, got error: %v", result.Error)
 	}
 
-	// Check first command sets airplane_mode_on to 0
-	if len(mock.commands) < 1 || mock.commands[0] != "settings put global airplane_mode_on 0" {
-		t.Errorf("expected settings command, got %v", mock.commands)
+	// Should try "cmd connectivity airplane-mode disable" first (Android 11+)
+	if len(mock.commands) < 1 || mock.commands[0] != "cmd connectivity airplane-mode disable" {
+		t.Errorf("expected cmd connectivity command, got %v", mock.commands)
 	}
 }
 
@@ -1129,16 +1129,16 @@ func TestToggleAirplaneModeFromOff(t *testing.T) {
 		t.Errorf("expected success, got error: %v", result.Error)
 	}
 
-	// Should toggle from 0 to 1
+	// First command reads current state, second enables via cmd connectivity
 	found := false
 	for _, cmd := range mock.commands {
-		if cmd == "settings put global airplane_mode_on 1" {
+		if cmd == "cmd connectivity airplane-mode enable" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected toggle to 1, got commands: %v", mock.commands)
+		t.Errorf("expected cmd connectivity enable, got commands: %v", mock.commands)
 	}
 }
 
@@ -1153,16 +1153,16 @@ func TestToggleAirplaneModeFromOn(t *testing.T) {
 		t.Errorf("expected success, got error: %v", result.Error)
 	}
 
-	// Should toggle from 1 to 0
+	// First command reads current state, second disables via cmd connectivity
 	found := false
 	for _, cmd := range mock.commands {
-		if cmd == "settings put global airplane_mode_on 0" {
+		if cmd == "cmd connectivity airplane-mode disable" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected toggle to 0, got commands: %v", mock.commands)
+		t.Errorf("expected cmd connectivity disable, got commands: %v", mock.commands)
 	}
 }
 

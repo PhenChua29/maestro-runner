@@ -42,10 +42,7 @@ var (
 	reNodeID     = regexp.MustCompile(`SemanticsNode#(\d+)`)
 	reRect       = regexp.MustCompile(`Rect\.fromLTRB\(\s*([\d.]+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\s*\)`)
 	rePixelRatio = regexp.MustCompile(`scaled by\s+(\d+\.?\d*)x`)
-	reLabel      = regexp.MustCompile(`label:\s*"(.*)"`)
 	reIdentifier = regexp.MustCompile(`identifier:\s*"(.*)"`)
-	reHint       = regexp.MustCompile(`hint:\s*"(.*)"`)
-	reValue      = regexp.MustCompile(`value:\s*"(.*)"`)
 	reFlags      = regexp.MustCompile(`flags:\s*(.+)`)
 	reActions    = regexp.MustCompile(`actions:\s*(.+)`)
 
