@@ -432,6 +432,11 @@ func (fr *FlowRunner) executeStep(idx int, step flow.Step) (report.Status, strin
 			result = fr.driver.Execute(step)
 		}
 
+	// Tap steps - apply repeat/delay/retry/settle options
+	case *flow.TapOnStep, *flow.DoubleTapOnStep, *flow.LongPressOnStep:
+		opts, _ := extractTapOptions(step)
+		result = fr.executeTapWithOptions(step, opts)
+
 	// All other steps - delegate to driver
 	default:
 		result = fr.driver.Execute(step)
@@ -787,6 +792,11 @@ func (fr *FlowRunner) executeNestedStep(step flow.Step) *core.CommandResult {
 				fr.script.SetCopiedText(text)
 			}
 		}
+	case *flow.TapOnStep, *flow.DoubleTapOnStep, *flow.LongPressOnStep:
+		fr.script.ExpandStep(step)
+		opts, _ := extractTapOptions(step)
+		result = fr.executeTapWithOptions(step, opts)
+
 	default:
 		// Expand variables before driver execution
 		fr.script.ExpandStep(step)
