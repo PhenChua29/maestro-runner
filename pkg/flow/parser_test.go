@@ -889,7 +889,7 @@ func TestParse_AssertConditionStep(t *testing.T) {
       text: "Success"
     notVisible:
       text: "Error"
-    scriptCondition: "result === true"
+    true: "result === true"
     platform: Android
 `
 	flow, err := Parse([]byte(yaml), "test.yaml")
