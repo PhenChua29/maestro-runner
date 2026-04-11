@@ -66,6 +66,9 @@ type DeviceLabClient interface {
 
 	// Settings
 	SetAppiumSettings(settings map[string]interface{}) error
+
+	// Settle detection
+	WaitForSettle(timeoutMs, quietMs int) (bool, error)
 }
 
 // Driver implements core.Driver using the DeviceLab Android Driver.
