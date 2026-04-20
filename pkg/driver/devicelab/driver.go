@@ -650,8 +650,9 @@ func buildClickableOnlyStrategies(sel flow.Selector) ([]LocatorStrategy, error) 
 
 	if sel.Text != "" {
 		escaped := escapeUIAutomatorString(sel.Text)
-		// Try case-sensitive textContains first (preserves existing behavior),
-		// then case-insensitive textMatches as fallback
+		// Case-sensitive text/description/hint first, then case-insensitive fallback.
+		// hintContains is a DeviceLab-agent extension — matches EditText android:hint
+		// placeholder so "tapOn: 'Email'" finds an empty field by its hint text.
 		strategies = append(strategies, LocatorStrategy{
 			Strategy: uiautomator2.StrategyUIAutomator,
 			Value:    `new UiSelector().textContains("` + escaped + `").clickable(true)` + stateFilters,
@@ -659,6 +660,10 @@ func buildClickableOnlyStrategies(sel flow.Selector) ([]LocatorStrategy, error) 
 		strategies = append(strategies, LocatorStrategy{
 			Strategy: uiautomator2.StrategyUIAutomator,
 			Value:    `new UiSelector().descriptionContains("` + escaped + `").clickable(true)` + stateFilters,
+		})
+		strategies = append(strategies, LocatorStrategy{
+			Strategy: uiautomator2.StrategyUIAutomator,
+			Value:    `new UiSelector().hintContains("` + escaped + `").clickable(true)` + stateFilters,
 		})
 		ciPattern := `(?is).*\Q` + escaped + `\E.*`
 		strategies = append(strategies, LocatorStrategy{
@@ -668,6 +673,10 @@ func buildClickableOnlyStrategies(sel flow.Selector) ([]LocatorStrategy, error) 
 		strategies = append(strategies, LocatorStrategy{
 			Strategy: uiautomator2.StrategyUIAutomator,
 			Value:    `new UiSelector().descriptionMatches("` + ciPattern + `").clickable(true)` + stateFilters,
+		})
+		strategies = append(strategies, LocatorStrategy{
+			Strategy: uiautomator2.StrategyUIAutomator,
+			Value:    `new UiSelector().hintMatches("` + ciPattern + `").clickable(true)` + stateFilters,
 		})
 		// Fall back to regex match (case-insensitive) for partial/pattern matches
 		if looksLikeRegex(sel.Text) {
@@ -1333,7 +1342,9 @@ func buildSelectorsWithOptions(sel flow.Selector, timeoutMs int, preferClickable
 		})
 	}
 
-	// Text-based selector: case-sensitive first, case-insensitive fallback
+	// Text-based selector: case-sensitive first, case-insensitive fallback.
+	// hintContains / hintMatches are DeviceLab-agent extensions — match EditText
+	// android:hint placeholder so "tapOn: 'Email'" finds an empty field by hint.
 	if sel.Text != "" {
 		escaped := escapeUIAutomatorString(sel.Text)
 		ciPattern := `(?is).*\Q` + escaped + `\E.*`
@@ -1346,6 +1357,10 @@ func buildSelectorsWithOptions(sel flow.Selector, timeoutMs int, preferClickable
 				Strategy: uiautomator2.StrategyUIAutomator,
 				Value:    `new UiSelector().descriptionContains("` + escaped + `").clickable(true)` + stateFilters,
 			})
+			strategies = append(strategies, LocatorStrategy{
+				Strategy: uiautomator2.StrategyUIAutomator,
+				Value:    `new UiSelector().hintContains("` + escaped + `").clickable(true)` + stateFilters,
+			})
 		}
 		strategies = append(strategies, LocatorStrategy{
 			Strategy: uiautomator2.StrategyUIAutomator,
@@ -1354,6 +1369,10 @@ func buildSelectorsWithOptions(sel flow.Selector, timeoutMs int, preferClickable
 		strategies = append(strategies, LocatorStrategy{
 			Strategy: uiautomator2.StrategyUIAutomator,
 			Value:    `new UiSelector().descriptionContains("` + escaped + `")` + stateFilters,
+		})
+		strategies = append(strategies, LocatorStrategy{
+			Strategy: uiautomator2.StrategyUIAutomator,
+			Value:    `new UiSelector().hintContains("` + escaped + `")` + stateFilters,
 		})
 		// Case-insensitive fallback
 		if preferClickable {
@@ -1365,6 +1384,10 @@ func buildSelectorsWithOptions(sel flow.Selector, timeoutMs int, preferClickable
 				Strategy: uiautomator2.StrategyUIAutomator,
 				Value:    `new UiSelector().descriptionMatches("` + ciPattern + `").clickable(true)` + stateFilters,
 			})
+			strategies = append(strategies, LocatorStrategy{
+				Strategy: uiautomator2.StrategyUIAutomator,
+				Value:    `new UiSelector().hintMatches("` + ciPattern + `").clickable(true)` + stateFilters,
+			})
 		}
 		strategies = append(strategies, LocatorStrategy{
 			Strategy: uiautomator2.StrategyUIAutomator,
@@ -1373,6 +1396,10 @@ func buildSelectorsWithOptions(sel flow.Selector, timeoutMs int, preferClickable
 		strategies = append(strategies, LocatorStrategy{
 			Strategy: uiautomator2.StrategyUIAutomator,
 			Value:    `new UiSelector().descriptionMatches("` + ciPattern + `")` + stateFilters,
+		})
+		strategies = append(strategies, LocatorStrategy{
+			Strategy: uiautomator2.StrategyUIAutomator,
+			Value:    `new UiSelector().hintMatches("` + ciPattern + `")` + stateFilters,
 		})
 		// Fall back to regex match (case-insensitive) with proper escaping
 		if looksLikeRegex(sel.Text) {
