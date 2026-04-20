@@ -43,10 +43,16 @@ func (d *Driver) tapOn(step *flow.TapOnStep) *core.CommandResult {
 			return d.tapOnBrowser(step)
 		}
 
-		strategies, err := buildSelectors(step.Selector, 0)
+		// Clickable-first: prefer buttons over labels. The agent promotes a text
+		// match to its nearest clickable ancestor when .clickable(true) is set,
+		// so "tapOn: SIGN IN" hits the clickable login-button ViewGroup even
+		// when the text lives on a non-clickable TextView child.
+		clickableStrategies, _ := buildClickableOnlyStrategies(step.Selector)
+		allStrategies, err := buildSelectors(step.Selector, 0)
 		if err != nil {
 			return errorResult(err, fmt.Sprintf("Failed to build selectors: %v", err))
 		}
+		strategies := append(clickableStrategies, allStrategies...)
 		timeout := d.calculateTimeout(step.IsOptional(), step.TimeoutMs)
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
