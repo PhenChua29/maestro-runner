@@ -7,6 +7,116 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.12] - 2026-04-22
+
+### Added
+- **Tap options** — `repeat`, `delay`, `retryTapIfNoChange`, and `waitToSettleTimeoutMs` now
+  honored during execution on all drivers (uiautomator2, wda, devicelab, appium, cdp).
+  Implemented at the executor layer, zero driver-side changes.
+  ([#52](https://github.com/devicelab-dev/maestro-runner/issues/52), [#53](https://github.com/devicelab-dev/maestro-runner/pull/53))
+  ```yaml
+  - tapOn:
+      id: "login-button"
+      repeat: 3
+      delay: 500
+      retryTapIfNoChange: true
+      waitToSettleTimeoutMs: 2000
+  ```
+- **runFlow timeout** — `timeout:` parameter on `runFlow` steps with context propagation
+  into driver polling loops. Element-finding cancels immediately on expiry, and failures
+  are classified as `TIMEOUT` in reports. Ref
+  [#29](https://github.com/devicelab-dev/maestro-runner/issues/29), thanks to
+  [@maraujop](https://github.com/maraujop) for the suggestion.
+  ```yaml
+  - runFlow:
+      file: common/login.yaml
+      timeout: 5000
+      env:
+        username: devicelab
+  ```
+- **Cloud Provider lifecycle hooks** — `Provider` interface now exposes `OnRunStart`,
+  `OnFlowStart`, and `OnFlowEnd` alongside the existing `ExtractMeta` and `ReportResult`.
+  Cloud integrations can update dashboards live per-flow instead of only at run end.
+  Sauce Labs ships with no-op placeholders for the new hooks.
+- **UI.waitForSettle RPC** — on-device tree-comparison settle detection on the DeviceLab
+  Android driver, used as an auto-settle before `inputText` / `eraseText` to avoid key
+  events firing mid-transition.
+- **Clickable-ancestor promotion** — when a DeviceLab tap matches text on a non-clickable
+  descendant (e.g. `"Sign In"` TextView inside a clickable login-button `ViewGroup`), the
+  agent now walks up to the nearest clickable ancestor.
+- **hintText matching** — `hintContains` / `hintMatches` UiSelector extensions on the
+  DeviceLab driver match an `EditText`'s `android:hint` placeholder. Lets
+  `tapOn: "Email"` find an empty email field by its hint.
+- **Case-insensitive text matching on Android** — `textContains` / `descriptionContains`
+  now fall back to case-insensitive match when case-sensitive fails, fixing Android dialog
+  buttons where `textAllCaps` displays `"CANCEL"` but the view hierarchy text is
+  `"Cancel"`. Reported by [@satya164](https://github.com/satya164).
+- **Appium parallel execution** — run flows across N Appium sessions concurrently. Each
+  session connects to the same Appium URL; the server allocates devices.
+  ([#47](https://github.com/devicelab-dev/maestro-runner/pull/47))
+- **`--wda-bundle-id` flag** — custom WebDriverAgent bundle identifier for signing
+  scenarios where the default bundle id isn't usable.
+  ([#48](https://github.com/devicelab-dev/maestro-runner/pull/48))
+- **Device info in Appium reports** — device info and session ID now surface in console
+  output and JUnit/Allure reports for Appium runs.
+
+### Changed
+- **Simpler `inputText` without selector** — DeviceLab and UIAutomator2 drivers now send
+  key events directly via `SendKeyActions` instead of attempting
+  `findFocused` / `ActiveElement` fallbacks. Matches Maestro's "type into whatever the OS
+  has focused" behavior.
+- Updated DeviceLab Android driver APK to ship `UI.waitForSettle`, clickable-ancestor
+  promotion, and hintText predicate support.
+- Appium parallel session count is capped at the number of flows (prints a warning
+  when parallel count exceeds flow count).
+
+### Fixed
+- **iOS install hang on iOS 17+ / iOS 26** — prefer `xcrun devicectl device install app`
+  over the legacy `go-ios` zipconduit path on real devices. Both paths now run under a
+  3-minute context timeout so a stuck install surfaces as an error instead of an infinite
+  spinner. Escape hatch via `MAESTRO_RUNNER_IOS_INSTALLER=zipconduit|devicectl`. Fixes
+  [#54](https://github.com/devicelab-dev/maestro-runner/issues/54), thanks to
+  [@ptmkenny](https://github.com/ptmkenny) for the clear repro.
+- **`clearKeychain` on iOS** — standalone `clearKeychain` step and
+  `launchApp { clearKeychain: true }` both now work. Previously the step erred with
+  `Step type '*flow.ClearKeychainStep' is not supported on iOS`, and the `launchApp`
+  flag was a silent no-op (users stayed logged in). On simulators runs
+  `xcrun simctl keychain <udid> reset`; on real devices returns a clear unsupported
+  message pointing to `clearState` as the alternative. Fixes
+  [#57](https://github.com/devicelab-dev/maestro-runner/issues/57), thanks to
+  [@ross-aker](https://github.com/ross-aker) for reporting.
+- **Swipe `LEFT` / `RIGHT` on Android** — use screen coordinates directly instead of the
+  previous element-relative computation that misbehaved.
+- **`when: { true: <expr> }` silently always-true** — the `true:` field wasn't parsed
+  (YAML tag bound to the internal `scriptCondition` name instead), so conditions were
+  ignored and commands always ran. Fixes
+  [#60](https://github.com/devicelab-dev/maestro-runner/issues/60), reported by
+  [@satya164](https://github.com/satya164) and
+  [@kavithamahesh](https://github.com/kavithamahesh).
+- **Env var default syntax** — `${VAR || "default"}` and `${VAR ?? "fallback"}` now
+  resolve correctly. Undefined JS variables auto-define as `undefined` on
+  `ReferenceError`, matching Maestro's GraalJS Proxy behavior. Fixes
+  [#49](https://github.com/devicelab-dev/maestro-runner/issues/49),
+  [#50](https://github.com/devicelab-dev/maestro-runner/issues/50).
+
+### Contributors
+
+[@ptmkenny](https://github.com/ptmkenny)
+1. Reported the iOS install hang on iOS 17+/26 with a clear repro ([#54](https://github.com/devicelab-dev/maestro-runner/issues/54))
+
+[@ross-aker](https://github.com/ross-aker)
+1. Reported `clearKeychain` not working on iOS Simulator ([#57](https://github.com/devicelab-dev/maestro-runner/issues/57))
+
+[@satya164](https://github.com/satya164)
+1. Reported Android dialog `textAllCaps` case mismatch (`CANCEL` vs `Cancel`)
+2. Reported `when: { true: <expr> }` parsing bug (duplicated by [#60](https://github.com/devicelab-dev/maestro-runner/issues/60))
+
+[@kavithamahesh](https://github.com/kavithamahesh)
+1. Reported `when.true` condition ignored ([#60](https://github.com/devicelab-dev/maestro-runner/issues/60))
+
+[@maraujop](https://github.com/maraujop)
+1. Suggested `runFlow` timeout ([#29](https://github.com/devicelab-dev/maestro-runner/issues/29))
+
 ## [1.1.1] - 2026-04-06
 
 ### Added
