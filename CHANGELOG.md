@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.13] - 2026-04-29
+
+### Changed
+- Env variables passes through `-e` will be automatically replaced with the `***`
+  in the step descriptions to not leak sensitive data.
+
 ## [1.1.12] - 2026-04-22
 
 ### Added
