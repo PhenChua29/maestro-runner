@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/core"
-	"github.com/devicelab-dev/maestro-runner/pkg/device"
-	"github.com/devicelab-dev/maestro-runner/pkg/emulator"
-	"github.com/devicelab-dev/maestro-runner/pkg/executor"
-	"github.com/devicelab-dev/maestro-runner/pkg/flow"
-	"github.com/devicelab-dev/maestro-runner/pkg/report"
-	"github.com/devicelab-dev/maestro-runner/pkg/simulator"
+	"github.com/phenchua29/maestro-runner/pkg/core"
+	"github.com/phenchua29/maestro-runner/pkg/device"
+	"github.com/phenchua29/maestro-runner/pkg/emulator"
+	"github.com/phenchua29/maestro-runner/pkg/executor"
+	"github.com/phenchua29/maestro-runner/pkg/flow"
+	"github.com/phenchua29/maestro-runner/pkg/report"
+	"github.com/phenchua29/maestro-runner/pkg/simulator"
 	"github.com/urfave/cli/v2"
 )
 

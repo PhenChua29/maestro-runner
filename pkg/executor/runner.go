@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/core"
-	"github.com/devicelab-dev/maestro-runner/pkg/flow"
-	"github.com/devicelab-dev/maestro-runner/pkg/report"
+	"github.com/phenchua29/maestro-runner/pkg/core"
+	"github.com/phenchua29/maestro-runner/pkg/flow"
+	"github.com/phenchua29/maestro-runner/pkg/report"
 )
 
 // ArtifactMode determines when to capture screenshots/hierarchy.

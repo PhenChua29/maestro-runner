@@ -12,10 +12,10 @@ import (
 
 	goios "github.com/danielpaulus/go-ios/ios"
 	"github.com/danielpaulus/go-ios/ios/zipconduit"
-	"github.com/devicelab-dev/maestro-runner/pkg/core"
-	wdadriver "github.com/devicelab-dev/maestro-runner/pkg/driver/wda"
-	"github.com/devicelab-dev/maestro-runner/pkg/flutter"
-	"github.com/devicelab-dev/maestro-runner/pkg/logger"
+	"github.com/phenchua29/maestro-runner/pkg/core"
+	wdadriver "github.com/phenchua29/maestro-runner/pkg/driver/wda"
+	"github.com/phenchua29/maestro-runner/pkg/flutter"
+	"github.com/phenchua29/maestro-runner/pkg/logger"
 )
 
 // installTimeout is the max time we wait for an iOS app install to complete.

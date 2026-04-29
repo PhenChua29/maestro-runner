@@ -3,7 +3,7 @@ package core
 import (
 	"time"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/flow"
+	"github.com/phenchua29/maestro-runner/pkg/flow"
 )
 
 // StepResult captures the complete outcome of executing a single step

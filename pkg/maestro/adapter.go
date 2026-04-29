@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/core"
-	"github.com/devicelab-dev/maestro-runner/pkg/uiautomator2"
+	"github.com/phenchua29/maestro-runner/pkg/core"
+	"github.com/phenchua29/maestro-runner/pkg/uiautomator2"
 )
 
 // Adapter implements the UIA2Client interface from pkg/driver/uiautomator2

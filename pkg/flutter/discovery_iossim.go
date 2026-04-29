@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/logger"
+	"github.com/phenchua29/maestro-runner/pkg/logger"
 )
 
 // DiscoverVMServiceIOS finds the Flutter VM Service URL from iOS simulator logs.

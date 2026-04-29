@@ -1,4 +1,4 @@
-module github.com/devicelab-dev/maestro-runner
+module github.com/phenchua29/maestro-runner
 
 go 1.22.0
 

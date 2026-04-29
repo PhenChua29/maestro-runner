@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/core"
-	"github.com/devicelab-dev/maestro-runner/pkg/flow"
-	"github.com/devicelab-dev/maestro-runner/pkg/report"
+	"github.com/phenchua29/maestro-runner/pkg/core"
+	"github.com/phenchua29/maestro-runner/pkg/flow"
+	"github.com/phenchua29/maestro-runner/pkg/report"
 )
 
 // DeviceWorker represents a single device worker that pulls from the queue.

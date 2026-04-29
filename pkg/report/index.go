@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/logger"
+	"github.com/phenchua29/maestro-runner/pkg/logger"
 )
 
 // IndexWriter provides thread-safe updates to the report index.

@@ -3,7 +3,7 @@ package executor
 import (
 	"testing"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/report"
+	"github.com/phenchua29/maestro-runner/pkg/report"
 )
 
 func TestColor(t *testing.T) {

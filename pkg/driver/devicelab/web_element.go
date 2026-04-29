@@ -3,7 +3,7 @@ package devicelab
 import (
 	"fmt"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/core"
+	"github.com/phenchua29/maestro-runner/pkg/core"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 )

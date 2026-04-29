@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/executor"
-	"github.com/devicelab-dev/maestro-runner/pkg/report"
+	"github.com/phenchua29/maestro-runner/pkg/executor"
+	"github.com/phenchua29/maestro-runner/pkg/report"
 )
 
 // printUnifiedOutput prints detailed results, summary table, and device summary.

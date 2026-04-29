@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/logger"
+	"github.com/phenchua29/maestro-runner/pkg/logger"
 )
 
 // UIAutomator2 package names

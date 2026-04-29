@@ -15,21 +15,21 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/cloud"
-	"github.com/devicelab-dev/maestro-runner/pkg/config"
-	"github.com/devicelab-dev/maestro-runner/pkg/core"
-	"github.com/devicelab-dev/maestro-runner/pkg/device"
-	appiumdriver "github.com/devicelab-dev/maestro-runner/pkg/driver/appium"
-	cdpdriver "github.com/devicelab-dev/maestro-runner/pkg/driver/browser/cdp"
-	"github.com/devicelab-dev/maestro-runner/pkg/driver/mock"
-	wdadriver "github.com/devicelab-dev/maestro-runner/pkg/driver/wda"
-	"github.com/devicelab-dev/maestro-runner/pkg/emulator"
-	"github.com/devicelab-dev/maestro-runner/pkg/executor"
-	"github.com/devicelab-dev/maestro-runner/pkg/flow"
-	"github.com/devicelab-dev/maestro-runner/pkg/logger"
-	"github.com/devicelab-dev/maestro-runner/pkg/report"
-	"github.com/devicelab-dev/maestro-runner/pkg/simulator"
-	"github.com/devicelab-dev/maestro-runner/pkg/validator"
+	"github.com/phenchua29/maestro-runner/pkg/cloud"
+	"github.com/phenchua29/maestro-runner/pkg/config"
+	"github.com/phenchua29/maestro-runner/pkg/core"
+	"github.com/phenchua29/maestro-runner/pkg/device"
+	appiumdriver "github.com/phenchua29/maestro-runner/pkg/driver/appium"
+	cdpdriver "github.com/phenchua29/maestro-runner/pkg/driver/browser/cdp"
+	"github.com/phenchua29/maestro-runner/pkg/driver/mock"
+	wdadriver "github.com/phenchua29/maestro-runner/pkg/driver/wda"
+	"github.com/phenchua29/maestro-runner/pkg/emulator"
+	"github.com/phenchua29/maestro-runner/pkg/executor"
+	"github.com/phenchua29/maestro-runner/pkg/flow"
+	"github.com/phenchua29/maestro-runner/pkg/logger"
+	"github.com/phenchua29/maestro-runner/pkg/report"
+	"github.com/phenchua29/maestro-runner/pkg/simulator"
+	"github.com/phenchua29/maestro-runner/pkg/validator"
 	"github.com/urfave/cli/v2"
 )
 
@@ -489,7 +489,7 @@ func hyperlink(url, text string) string {
 
 func printBanner() {
 	deviceLabLink := hyperlink("https://devicelab.dev", color(colorCyan)+"DeviceLab.dev"+color(colorReset))
-	githubLink := hyperlink("https://github.com/devicelab-dev/maestro-runner", "Star us on GitHub")
+	githubLink := hyperlink("https://github.com/phenchua29/maestro-runner", "Star us on GitHub")
 
 	fmt.Println()
 	fmt.Printf("  maestro-runner %s - by %s\n", Version, deviceLabLink)

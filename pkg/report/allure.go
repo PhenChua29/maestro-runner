@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/logger"
+	"github.com/phenchua29/maestro-runner/pkg/logger"
 )
 
 // Allure result schema types.

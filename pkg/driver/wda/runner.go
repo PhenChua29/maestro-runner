@@ -14,8 +14,8 @@ import (
 
 	goios "github.com/danielpaulus/go-ios/ios"
 	"github.com/danielpaulus/go-ios/ios/forward"
-	"github.com/devicelab-dev/maestro-runner/pkg/config"
-	"github.com/devicelab-dev/maestro-runner/pkg/logger"
+	"github.com/phenchua29/maestro-runner/pkg/config"
+	"github.com/phenchua29/maestro-runner/pkg/logger"
 )
 
 const (

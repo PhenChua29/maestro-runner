@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/core"
-	"github.com/devicelab-dev/maestro-runner/pkg/flow"
+	"github.com/phenchua29/maestro-runner/pkg/core"
+	"github.com/phenchua29/maestro-runner/pkg/flow"
 )
 
 // mockAppiumServerForDriver creates a comprehensive mock Appium server for driver testing

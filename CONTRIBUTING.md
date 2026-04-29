@@ -22,7 +22,7 @@ make check
 
 ### Reporting Bugs
 
-1. Check existing [issues](https://github.com/devicelab-dev/maestro-runner/issues) to avoid duplicates
+1. Check existing [issues](https://github.com/phenchua29/maestro-runner/issues) to avoid duplicates
 2. Use the bug report template
 3. Include:
    - Go version (`go version`)

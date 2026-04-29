@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/core"
-	"github.com/devicelab-dev/maestro-runner/pkg/flow"
-	"github.com/devicelab-dev/maestro-runner/pkg/uiautomator2"
+	"github.com/phenchua29/maestro-runner/pkg/core"
+	"github.com/phenchua29/maestro-runner/pkg/flow"
+	"github.com/phenchua29/maestro-runner/pkg/uiautomator2"
 )
 
 // mockDeviceLabClient is a minimal mock for scrollUntilVisible tests.

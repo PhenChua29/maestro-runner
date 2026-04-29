@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/uiautomator2"
+	"github.com/phenchua29/maestro-runner/pkg/uiautomator2"
 )
 
 // adapterWithMock creates an Adapter backed by a mock WS server.

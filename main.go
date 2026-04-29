@@ -1,7 +1,7 @@
 // Package main is the entry point for maestro-runner CLI.
 package main
 
-import "github.com/devicelab-dev/maestro-runner/pkg/cli"
+import "github.com/phenchua29/maestro-runner/pkg/cli"
 
 func main() {
 	cli.Execute()

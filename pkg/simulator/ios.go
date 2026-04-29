@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/logger"
+	"github.com/phenchua29/maestro-runner/pkg/logger"
 )
 
 // FindSimctlBinary verifies that xcrun/simctl is available.

@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/config"
-	"github.com/devicelab-dev/maestro-runner/pkg/flow"
+	"github.com/phenchua29/maestro-runner/pkg/config"
+	"github.com/phenchua29/maestro-runner/pkg/flow"
 )
 
 // ValidationError represents a validation error with context.

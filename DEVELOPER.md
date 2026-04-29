@@ -83,8 +83,8 @@ pkg/driver/mydriver/
 package mydriver
 
 import (
-    "github.com/devicelab-dev/maestro-runner/pkg/core"
-    "github.com/devicelab-dev/maestro-runner/pkg/flow"
+    "github.com/phenchua29/maestro-runner/pkg/core"
+    "github.com/phenchua29/maestro-runner/pkg/flow"
 )
 
 type Driver struct {

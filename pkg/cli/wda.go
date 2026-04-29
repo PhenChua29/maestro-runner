@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/config"
-	wdadriver "github.com/devicelab-dev/maestro-runner/pkg/driver/wda"
+	"github.com/phenchua29/maestro-runner/pkg/config"
+	wdadriver "github.com/phenchua29/maestro-runner/pkg/driver/wda"
 	"github.com/urfave/cli/v2"
 )
 

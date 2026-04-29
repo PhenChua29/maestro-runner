@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devicelab-dev/maestro-runner/pkg/core"
-	"github.com/devicelab-dev/maestro-runner/pkg/report"
+	"github.com/phenchua29/maestro-runner/pkg/core"
+	"github.com/phenchua29/maestro-runner/pkg/report"
 )
 
 func TestClassifyError(t *testing.T) {
