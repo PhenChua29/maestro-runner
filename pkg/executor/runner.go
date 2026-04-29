@@ -101,6 +101,8 @@ func New(driver core.Driver, cfg RunnerConfig) *Runner {
 func (r *Runner) Run(ctx context.Context, flows []flow.Flow) (*RunResult, error) {
 	// Expand suites into individual test case flows
 	expandedFlows := expandSuites(flows)
+	flow.SetDescribeEnvRedactions(collectDescribeEnvRedactions(r.config.Env, expandedFlows))
+	defer flow.SetDescribeEnvRedactions(nil)
 
 	// Build report skeleton
 	builderCfg := report.BuilderConfig{
@@ -137,6 +139,25 @@ func (r *Runner) Run(ctx context.Context, flows []flow.Flow) (*RunResult, error)
 
 	// Build result
 	return r.buildRunResult(results), nil
+}
+
+func collectDescribeEnvRedactions(cliEnv map[string]string, flows []flow.Flow) map[string]string {
+	redactions := make(map[string]string)
+	addValues := func(env map[string]string) {
+		for _, v := range env {
+			if v == "" {
+				continue
+			}
+			redactions[v] = v
+		}
+	}
+
+	addValues(cliEnv)
+	for _, f := range flows {
+		addValues(f.Config.Env)
+	}
+
+	return redactions
 }
 
 // executeFlows runs flows either sequentially or in parallel.

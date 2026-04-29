@@ -1,7 +1,56 @@
 // Package flow handles parsing and representation of Maestro YAML flow files.
 package flow
 
-import "gopkg.in/yaml.v3"
+import (
+	"sort"
+	"strings"
+	"sync"
+
+	"gopkg.in/yaml.v3"
+)
+
+var (
+	describeRedactionsMu sync.RWMutex
+	describeRedactions   []string
+)
+
+// SetDescribeEnvRedactions configures values to redact from all Step Describe() outputs.
+func SetDescribeEnvRedactions(env map[string]string) {
+	values := make([]string, 0, len(env))
+	seen := make(map[string]bool, len(env))
+	for _, v := range env {
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		values = append(values, v)
+	}
+
+	// Replace longer values first to avoid partial replacement leaks.
+	sort.Slice(values, func(i, j int) bool {
+		return len(values[i]) > len(values[j])
+	})
+
+	describeRedactionsMu.Lock()
+	describeRedactions = values
+	describeRedactionsMu.Unlock()
+}
+
+// RedactConfiguredEnvValues replaces configured env values in text with "***".
+func RedactConfiguredEnvValues(text string) string {
+	describeRedactionsMu.RLock()
+	defer describeRedactionsMu.RUnlock()
+
+	redacted := text
+	for _, v := range describeRedactions {
+		redacted = strings.ReplaceAll(redacted, v, "***")
+	}
+	return redacted
+}
+
+func redactDescribe(text string) string {
+	return RedactConfiguredEnvValues(text)
+}
 
 // StepType represents the type of step.
 type StepType string
@@ -66,10 +115,10 @@ const (
 	StepRunFlow           StepType = "runFlow"
 	StepRunScript         StepType = "runScript"
 	StepEvalScript        StepType = "evalScript"
-	StepEvalBrowserScript  StepType = "evalBrowserScript"
-	StepRunBrowserScript   StepType = "runBrowserScript"
-	StepEvalWebViewScript  StepType = "evalWebViewScript"
-	StepRunWebViewScript   StepType = "runWebViewScript"
+	StepEvalBrowserScript StepType = "evalBrowserScript"
+	StepRunBrowserScript  StepType = "runBrowserScript"
+	StepEvalWebViewScript StepType = "evalWebViewScript"
+	StepRunWebViewScript  StepType = "runWebViewScript"
 	StepGetConsoleLogs    StepType = "getConsoleLogs"
 	StepClearConsoleLogs  StepType = "clearConsoleLogs"
 	StepAssertNoJSErrors  StepType = "assertNoJSErrors"
@@ -136,7 +185,7 @@ func (b *BaseStep) IsOptional() bool { return b.Optional }
 func (b *BaseStep) Label() string { return b.StepLabel }
 
 // Describe returns a human-readable description.
-func (b *BaseStep) Describe() string { return string(b.StepType) }
+func (b *BaseStep) Describe() string { return redactDescribe(string(b.StepType)) }
 
 // ============================================
 // Navigation & Interaction Steps
@@ -765,7 +814,7 @@ type UnsupportedStep struct {
 
 // Describe returns a description including the unsupported reason.
 func (s *UnsupportedStep) Describe() string {
-	return string(s.StepType) + " (unsupported: " + s.Reason + ")"
+	return redactDescribe(string(s.StepType) + " (unsupported: " + s.Reason + ")")
 }
 
 // ============================================
@@ -774,93 +823,93 @@ func (s *UnsupportedStep) Describe() string {
 
 // Describe returns a human-readable description of the tap step.
 func (s *TapOnStep) Describe() string {
-	return "tapOn: " + s.Selector.DescribeQuoted()
+	return redactDescribe("tapOn: " + s.Selector.DescribeQuoted())
 }
 
 // Describe returns a human-readable description of the double tap step.
 func (s *DoubleTapOnStep) Describe() string {
-	return "doubleTapOn: " + s.Selector.DescribeQuoted()
+	return redactDescribe("doubleTapOn: " + s.Selector.DescribeQuoted())
 }
 
 // Describe returns a human-readable description of the long press step.
 func (s *LongPressOnStep) Describe() string {
-	return "longPressOn: " + s.Selector.DescribeQuoted()
+	return redactDescribe("longPressOn: " + s.Selector.DescribeQuoted())
 }
 
 // Describe returns a human-readable description of the assert visible step.
 func (s *AssertVisibleStep) Describe() string {
-	return "assertVisible: " + s.Selector.DescribeQuoted()
+	return redactDescribe("assertVisible: " + s.Selector.DescribeQuoted())
 }
 
 // Describe returns a human-readable description of the assert not visible step.
 func (s *AssertNotVisibleStep) Describe() string {
-	return "assertNotVisible: " + s.Selector.DescribeQuoted()
+	return redactDescribe("assertNotVisible: " + s.Selector.DescribeQuoted())
 }
 
 // Describe returns a human-readable description of the input text step.
 func (s *InputTextStep) Describe() string {
-	return "inputText: \"" + s.Text + "\""
+	return redactDescribe("inputText: \"" + s.Text + "\"")
 }
 
 // Describe returns a human-readable description of the launch app step.
 func (s *LaunchAppStep) Describe() string {
 	if s.ClearState {
-		return "launchApp (clearState)"
+		return redactDescribe("launchApp (clearState)")
 	}
-	return "launchApp"
+	return redactDescribe("launchApp")
 }
 
 // Describe returns a human-readable description of the wait until step.
 func (s *WaitUntilStep) Describe() string {
 	if s.Visible != nil {
-		return "extendedWaitUntil: visible " + s.Visible.DescribeQuoted()
+		return redactDescribe("extendedWaitUntil: visible " + s.Visible.DescribeQuoted())
 	}
 	if s.NotVisible != nil {
-		return "extendedWaitUntil: notVisible " + s.NotVisible.DescribeQuoted()
+		return redactDescribe("extendedWaitUntil: notVisible " + s.NotVisible.DescribeQuoted())
 	}
-	return "extendedWaitUntil"
+	return redactDescribe("extendedWaitUntil")
 }
 
 // Describe returns a human-readable description of the scroll until visible step.
 func (s *ScrollUntilVisibleStep) Describe() string {
-	return "scrollUntilVisible: " + s.Element.DescribeQuoted()
+	return redactDescribe("scrollUntilVisible: " + s.Element.DescribeQuoted())
 }
 
 // Describe returns a human-readable description of the copy text step.
 func (s *CopyTextFromStep) Describe() string {
-	return "copyTextFrom: " + s.Selector.DescribeQuoted()
+	return redactDescribe("copyTextFrom: " + s.Selector.DescribeQuoted())
 }
 
 // Describe returns a human-readable description of the run flow step.
 func (s *RunFlowStep) Describe() string {
 	if s.File != "" {
-		return "runFlow: " + s.File
+		return redactDescribe("runFlow: " + s.File)
 	}
-	return "runFlow"
+	return redactDescribe("runFlow")
 }
 
 // Describe returns a human-readable description of the press key step.
 func (s *PressKeyStep) Describe() string {
-	return "pressKey: " + s.Key
+	return redactDescribe("pressKey: " + s.Key)
 }
 
 // Describe returns a human-readable description of the swipe step.
 func (s *SwipeStep) Describe() string {
 	if s.Direction != "" {
-		return "swipe: " + s.Direction
+		return redactDescribe("swipe: " + s.Direction)
 	}
-	return "swipe"
+	return redactDescribe("swipe")
 }
 
 // Describe returns a human-readable description of the scroll step.
 func (s *ScrollStep) Describe() string {
 	if s.Direction != "" {
-		return "scroll: " + s.Direction
+		return redactDescribe("scroll: " + s.Direction)
 	}
-	return "scroll"
+	return redactDescribe("scroll")
 }
 
 // Describe returns a human-readable description of the set permissions step.
 func (s *SetPermissionsStep) Describe() string {
-	return "setPermissions"
+	return redactDescribe("setPermissions")
 }

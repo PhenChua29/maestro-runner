@@ -586,6 +586,129 @@ func TestInputTextStep_Describe(t *testing.T) {
 	}
 }
 
+func TestDescribe_RedactsConfiguredEnvValues_InputText(t *testing.T) {
+	SetDescribeEnvRedactions(map[string]string{
+		"PASSWORD": "secret123",
+	})
+	defer SetDescribeEnvRedactions(nil)
+
+	s := InputTextStep{
+		BaseStep: BaseStep{StepType: StepInputText},
+		Text:     "secret123",
+	}
+
+	expected := `inputText: "***"`
+	if got := s.Describe(); got != expected {
+		t.Errorf("Describe() = %q, want %q", got, expected)
+	}
+}
+
+func TestDescribe_RedactsConfiguredEnvValues_SelectorText(t *testing.T) {
+	SetDescribeEnvRedactions(map[string]string{
+		"TOKEN": "abc-123-secret",
+	})
+	defer SetDescribeEnvRedactions(nil)
+
+	s := AssertVisibleStep{
+		BaseStep: BaseStep{StepType: StepAssertVisible},
+		Selector: Selector{Text: "Bearer abc-123-secret"},
+	}
+
+	expected := `assertVisible: text="Bearer ***"`
+	if got := s.Describe(); got != expected {
+		t.Errorf("Describe() = %q, want %q", got, expected)
+	}
+}
+
+func TestDescribe_RedactionRegression_NoConfiguredValues(t *testing.T) {
+	SetDescribeEnvRedactions(nil)
+
+	s := InputTextStep{
+		BaseStep: BaseStep{StepType: StepInputText},
+		Text:     "plain-text",
+	}
+	expected := `inputText: "plain-text"`
+	if got := s.Describe(); got != expected {
+		t.Errorf("Describe() = %q, want %q", got, expected)
+	}
+}
+
+func TestDescribe_RedactionRegression_ResetClearsPreviousState(t *testing.T) {
+	SetDescribeEnvRedactions(map[string]string{
+		"PASSWORD": "secret123",
+	})
+	s := InputTextStep{
+		BaseStep: BaseStep{StepType: StepInputText},
+		Text:     "secret123",
+	}
+	if got := s.Describe(); got != `inputText: "***"` {
+		t.Fatalf("Describe() before reset = %q, want %q", got, `inputText: "***"`)
+	}
+
+	SetDescribeEnvRedactions(nil)
+	if got := s.Describe(); got != `inputText: "secret123"` {
+		t.Errorf("Describe() after reset = %q, want %q", got, `inputText: "secret123"`)
+	}
+}
+
+func TestDescribe_RedactsMultipleValuesAcrossSteps(t *testing.T) {
+	SetDescribeEnvRedactions(map[string]string{
+		"TOKEN":    "abc-123-secret",
+		"FLOW_KEY": "login-secret",
+	})
+	defer SetDescribeEnvRedactions(nil)
+
+	assertStep := AssertVisibleStep{
+		BaseStep: BaseStep{StepType: StepAssertVisible},
+		Selector: Selector{Text: "Bearer abc-123-secret"},
+	}
+	if got := assertStep.Describe(); got != `assertVisible: text="Bearer ***"` {
+		t.Errorf("AssertVisibleStep.Describe() = %q, want %q", got, `assertVisible: text="Bearer ***"`)
+	}
+
+	runFlowStep := RunFlowStep{
+		BaseStep: BaseStep{StepType: StepRunFlow},
+		File:     "flows/login-secret.yaml",
+	}
+	if got := runFlowStep.Describe(); got != "runFlow: flows/***.yaml" {
+		t.Errorf("RunFlowStep.Describe() = %q, want %q", got, "runFlow: flows/***.yaml")
+	}
+}
+
+func TestDescribe_RedactionRegression_PrefersLongerMatches(t *testing.T) {
+	SetDescribeEnvRedactions(map[string]string{
+		"SHORT": "abc",
+		"LONG":  "abc123",
+	})
+	defer SetDescribeEnvRedactions(nil)
+
+	s := InputTextStep{
+		BaseStep: BaseStep{StepType: StepInputText},
+		Text:     "abc123",
+	}
+	expected := `inputText: "***"`
+	if got := s.Describe(); got != expected {
+		t.Errorf("Describe() = %q, want %q", got, expected)
+	}
+}
+
+func TestDescribe_RedactionRegression_IgnoresEmptyEnvValues(t *testing.T) {
+	SetDescribeEnvRedactions(map[string]string{
+		"EMPTY": "",
+		"REAL":  "value123",
+	})
+	defer SetDescribeEnvRedactions(nil)
+
+	s := InputTextStep{
+		BaseStep: BaseStep{StepType: StepInputText},
+		Text:     "value123",
+	}
+	expected := `inputText: "***"`
+	if got := s.Describe(); got != expected {
+		t.Errorf("Describe() = %q, want %q", got, expected)
+	}
+}
+
 func TestLaunchAppStep_Describe(t *testing.T) {
 	tests := []struct {
 		name       string

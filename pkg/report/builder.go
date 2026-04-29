@@ -131,7 +131,7 @@ func extractParams(step flow.Step) *CommandParams {
 
 	// Extract text for input steps
 	if s, ok := step.(*flow.InputTextStep); ok && s.Text != "" {
-		params.Text = s.Text
+		params.Text = flow.RedactConfiguredEnvValues(s.Text)
 		hasContent = true
 	}
 
@@ -227,7 +227,7 @@ func convertSelector(sel *flow.Selector) *Selector {
 
 	return &Selector{
 		Type:     sType,
-		Value:    sValue,
+		Value:    flow.RedactConfiguredEnvValues(sValue),
 		Optional: optional,
 	}
 }
