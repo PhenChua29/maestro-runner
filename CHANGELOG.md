@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.14] - 2026-04-30
+
+### Added
+- Reports for `onFlowStart` and `onFlowComplete` now are also rendered in the html
+  report.
+
 ## [1.1.13] - 2026-04-29
 
 ### Changed
