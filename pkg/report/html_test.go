@@ -67,6 +67,22 @@ func TestGenerateHTML(t *testing.T) {
 		SourceFile: "flows/login.yaml",
 		StartTime:  now,
 		Duration:   &duration,
+		OnFlowStartCommands: []Command{
+			{
+				ID:     "hook-start-000",
+				Index:  0,
+				Type:   "tapOn",
+				YAML:   "- tapOn: \"Login\"",
+				Status: StatusFailed,
+				Artifacts: CommandArtifacts{
+					ScreenshotAfter: "assets/flow-000/hook-start-000-after.png",
+				},
+				Error: &Error{
+					Type:    "execution",
+					Message: "hook failed",
+				},
+			},
+		},
 		Commands: []Command{
 			{
 				ID:       "cmd-000",
@@ -97,6 +113,15 @@ func TestGenerateHTML(t *testing.T) {
 						X: 100, Y: 200, Width: 200, Height: 50,
 					},
 				},
+			},
+		},
+		OnFlowCompleteCommands: []Command{
+			{
+				ID:     "hook-end-000",
+				Index:  0,
+				Type:   "stopApp",
+				YAML:   "- stopApp",
+				Status: StatusPassed,
 			},
 		},
 	}
@@ -142,9 +167,12 @@ func TestGenerateHTML(t *testing.T) {
 		"<!DOCTYPE html>",
 		"<title>Test Report</title>",
 		"Login Test",
+		"onFlowStart hook",
+		"onFlowComplete hook",
 		"launchApp",
 		"tapOn",
 		"login_button",
+		"hook-start-000-after.png",
 		"Pixel 6",
 		"android",
 		"uiautomator2",

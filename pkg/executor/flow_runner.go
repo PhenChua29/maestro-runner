@@ -32,6 +32,13 @@ type FlowRunner struct {
 	stepsSkipped int
 	// Sub-command tracking for compound steps (runFlow, repeat, retry)
 	subCommands []report.Command
+	// Hook command tracking
+	onFlowStartCommands    []report.Command
+	onFlowCompleteCommands []report.Command
+	// Active nested command sink (defaults to subCommands when nil)
+	nestedCommandSink *[]report.Command
+	// Monotonic artifact index for nested commands to avoid filename collisions.
+	nestedArtifactSeq int
 	// Effective wait-for-idle timeout (0 = disabled, used to skip settle)
 	waitForIdleTimeout int
 	// Active runFlow timeout label (e.g. "3s") for enriching sub-step errors
@@ -146,17 +153,25 @@ func (fr *FlowRunner) Run() FlowResult {
 	// Execute onFlowComplete in defer (runs even on failure)
 	defer func() {
 		if len(fr.flow.Config.OnFlowComplete) > 0 {
+			restore := fr.withNestedCommandSink(&fr.onFlowCompleteCommands)
 			for _, step := range fr.flow.Config.OnFlowComplete {
 				fr.executeNestedStep(step) // Ignore failures in cleanup
 			}
+			restore()
+			fr.detail.OnFlowCompleteCommands = append([]report.Command(nil), fr.onFlowCompleteCommands...)
+			// Persist hook command updates even when flow end was already written (e.g. early failure).
+			fr.flowWriter.SetFlowArtifacts(fr.detail.Artifacts)
 		}
 	}()
 
 	// Execute onFlowStart hooks
 	if len(fr.flow.Config.OnFlowStart) > 0 {
+		restore := fr.withNestedCommandSink(&fr.onFlowStartCommands)
 		for _, step := range fr.flow.Config.OnFlowStart {
 			result := fr.executeNestedStep(step)
 			if !result.Success && !step.IsOptional() {
+				restore()
+				fr.detail.OnFlowStartCommands = append([]report.Command(nil), fr.onFlowStartCommands...)
 				// onFlowStart failed - fail the flow
 				fr.flowWriter.End(report.StatusFailed)
 				errMsg := fmt.Sprintf("onFlowStart failed: %v", result.Error)
@@ -177,6 +192,8 @@ func (fr *FlowRunner) Run() FlowResult {
 				}
 			}
 		}
+		restore()
+		fr.detail.OnFlowStartCommands = append([]report.Command(nil), fr.onFlowStartCommands...)
 	}
 
 	for i, step := range fr.flow.Steps {
@@ -774,24 +791,28 @@ func (fr *FlowRunner) enrichTimeoutError(result *core.CommandResult) *core.Comma
 	return &enriched
 }
 
-// executeNestedStep executes a step without report tracking (for nested execution).
+// executeNestedStep executes a nested step and tracks it as a report sub-command.
 func (fr *FlowRunner) executeNestedStep(step flow.Step) *core.CommandResult {
 	start := time.Now()
 	var result *core.CommandResult
+	parentSink := fr.currentNestedCommandSink()
 
-	// For nested compound steps, we need to track their sub-commands separately
+	// For nested compound steps, track child sub-commands in an isolated sink.
 	var nestedSubCommands []report.Command
 	isCompoundStep := false
 	switch step.(type) {
 	case *flow.RepeatStep, *flow.RetryStep, *flow.RunFlowStep:
 		isCompoundStep = true
-		// Save parent's subCommands and start fresh for this nested compound step
-		parentSubCommands := fr.subCommands
-		fr.subCommands = nil
-		defer func() {
-			nestedSubCommands = fr.subCommands
-			fr.subCommands = parentSubCommands
-		}()
+		restore := fr.withNestedCommandSink(&nestedSubCommands)
+		defer restore()
+	}
+
+	// Determine what artifacts to capture for nested step report entries.
+	captureAlways := fr.config.Artifacts == ArtifactAlways
+	captureOnFailure := fr.config.Artifacts == ArtifactOnFailure
+	var artifacts report.CommandArtifacts
+	if captureAlways {
+		artifacts = fr.captureNestedArtifacts("before")
 	}
 
 	switch s := step.(type) {
@@ -817,11 +838,13 @@ func (fr *FlowRunner) executeNestedStep(step flow.Step) *core.CommandResult {
 		result = fr.driver.Execute(step)
 		if result.Success {
 			if data, ok := result.Data.([]byte); ok && len(data) > 0 {
-				subIdx := len(fr.subCommands)
-				path, saveErr := fr.flowWriter.SaveNamedScreenshot(subIdx, s.Path, data)
+				screenshotIdx := len(fr.flow.Steps) + fr.nestedArtifactSeq
+				fr.nestedArtifactSeq++
+				path, saveErr := fr.flowWriter.SaveNamedScreenshot(screenshotIdx, s.Path, data)
 				if saveErr != nil {
 					logger.Warn("Failed to save nested screenshot: %v", saveErr)
 				} else {
+					artifacts.ScreenshotAfter = path
 					result.Message = fmt.Sprintf("Screenshot saved: %s", filepath.Base(path))
 				}
 			}
@@ -910,6 +933,14 @@ func (fr *FlowRunner) executeNestedStep(step flow.Step) *core.CommandResult {
 		result = fr.enrichTimeoutError(result)
 	}
 
+	// Capture nested step artifacts based on configured mode.
+	shouldCaptureAfter := captureAlways || (captureOnFailure && !result.Success)
+	if shouldCaptureAfter {
+		afterArtifacts := fr.captureNestedArtifacts("after")
+		artifacts.ScreenshotAfter = afterArtifacts.ScreenshotAfter
+		artifacts.ViewHierarchy = afterArtifacts.ViewHierarchy
+	}
+
 	// Track nested step counts (compound steps like runFlow/repeat/retry don't count themselves)
 	if !isCompoundStep {
 		if result.Success {
@@ -934,10 +965,11 @@ func (fr *FlowRunner) executeNestedStep(step flow.Step) *core.CommandResult {
 		status = report.StatusFailed
 	}
 
+	nextIdx := len(*parentSink)
 	now := time.Now()
 	cmd := report.Command{
-		ID:        fmt.Sprintf("sub-%d", len(fr.subCommands)),
-		Index:     len(fr.subCommands),
+		ID:        fmt.Sprintf("sub-%d", nextIdx),
+		Index:     nextIdx,
 		Type:      string(step.Type()),
 		Label:     step.Label(),
 		YAML:      step.Describe(),
@@ -945,6 +977,7 @@ func (fr *FlowRunner) executeNestedStep(step flow.Step) *core.CommandResult {
 		StartTime: &start,
 		EndTime:   &now,
 		Duration:  &duration,
+		Artifacts: artifacts,
 	}
 
 	// Add error info if failed
@@ -960,7 +993,7 @@ func (fr *FlowRunner) executeNestedStep(step flow.Step) *core.CommandResult {
 		cmd.SubCommands = nestedSubCommands
 	}
 
-	fr.subCommands = append(fr.subCommands, cmd)
+	*parentSink = append(*parentSink, cmd)
 
 	return result
 }
@@ -1082,4 +1115,25 @@ func (fr *FlowRunner) captureArtifacts(cmdIdx int, timing string) report.Command
 	}
 
 	return artifacts
+}
+
+func (fr *FlowRunner) captureNestedArtifacts(timing string) report.CommandArtifacts {
+	artifactIdx := len(fr.flow.Steps) + fr.nestedArtifactSeq
+	fr.nestedArtifactSeq++
+	return fr.captureArtifacts(artifactIdx, timing)
+}
+
+func (fr *FlowRunner) currentNestedCommandSink() *[]report.Command {
+	if fr.nestedCommandSink != nil {
+		return fr.nestedCommandSink
+	}
+	return &fr.subCommands
+}
+
+func (fr *FlowRunner) withNestedCommandSink(sink *[]report.Command) func() {
+	prev := fr.nestedCommandSink
+	fr.nestedCommandSink = sink
+	return func() {
+		fr.nestedCommandSink = prev
+	}
 }

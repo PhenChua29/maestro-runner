@@ -144,16 +144,18 @@ type AttemptEntry struct {
 
 // FlowDetail contains full flow execution details.
 type FlowDetail struct {
-	ID         string        `json:"id"`
-	Name       string        `json:"name"`
-	SourceFile string        `json:"sourceFile"`
-	Tags       []string      `json:"tags,omitempty"`
-	Device     *Device       `json:"device,omitempty"` // Device that ran this flow (for multi-device runs)
-	StartTime  time.Time     `json:"startTime"`
-	EndTime    *time.Time    `json:"endTime,omitempty"`
-	Duration   *int64        `json:"duration,omitempty"` // milliseconds
-	Commands   []Command     `json:"commands"`
-	Artifacts  FlowArtifacts `json:"artifacts"`
+	ID                     string        `json:"id"`
+	Name                   string        `json:"name"`
+	SourceFile             string        `json:"sourceFile"`
+	Tags                   []string      `json:"tags,omitempty"`
+	Device                 *Device       `json:"device,omitempty"` // Device that ran this flow (for multi-device runs)
+	StartTime              time.Time     `json:"startTime"`
+	EndTime                *time.Time    `json:"endTime,omitempty"`
+	Duration               *int64        `json:"duration,omitempty"` // milliseconds
+	OnFlowStartCommands    []Command     `json:"onFlowStartCommands,omitempty"`
+	Commands               []Command     `json:"commands"`
+	OnFlowCompleteCommands []Command     `json:"onFlowCompleteCommands,omitempty"`
+	Artifacts              FlowArtifacts `json:"artifacts"`
 }
 
 // Command represents a single command execution.

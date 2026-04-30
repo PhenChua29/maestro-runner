@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -518,6 +519,196 @@ func TestRunner_Run_ArtifactsOnFailure(t *testing.T) {
 
 	if result.Status != report.StatusFailed {
 		t.Errorf("Status = %v, want %v", result.Status, report.StatusFailed)
+	}
+}
+
+func TestRunner_Run_HookCommandsTrackedWithFailureArtifacts(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	execCount := 0
+	driver := &mockDriver{
+		executeFunc: func(step flow.Step) *core.CommandResult {
+			execCount++
+			// Fail on onFlowStart hook step.
+			if execCount == 1 {
+				return &core.CommandResult{
+					Success: false,
+					Error:   &testError{msg: "hook start failed"},
+				}
+			}
+			return &core.CommandResult{Success: true}
+		},
+		screenshotFunc: func() ([]byte, error) {
+			return []byte{0x89, 0x50, 0x4E, 0x47}, nil
+		},
+		hierarchyFunc: func() ([]byte, error) {
+			return []byte("<hierarchy/>"), nil
+		},
+	}
+
+	runner := New(driver, RunnerConfig{
+		OutputDir:   tmpDir,
+		Parallelism: 0,
+		Artifacts:   ArtifactOnFailure,
+		Device:      report.Device{ID: "test", Platform: "android"},
+		App:         report.App{ID: "com.test"},
+	})
+
+	flows := []flow.Flow{
+		{
+			SourcePath: "test.yaml",
+			Config: flow.Config{
+				Name: "Hook Tracking Test",
+				OnFlowStart: []flow.Step{
+					&flow.TapOnStep{BaseStep: flow.BaseStep{StepType: flow.StepTapOn}},
+				},
+				OnFlowComplete: []flow.Step{
+					&flow.TapOnStep{BaseStep: flow.BaseStep{StepType: flow.StepTapOn}},
+				},
+			},
+			Steps: []flow.Step{
+				&flow.TapOnStep{BaseStep: flow.BaseStep{StepType: flow.StepTapOn}},
+			},
+		},
+	}
+
+	result, err := runner.Run(context.Background(), flows)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Status != report.StatusFailed {
+		t.Fatalf("Status = %v, want %v", result.Status, report.StatusFailed)
+	}
+
+	flowPath := filepath.Join(tmpDir, "flows", "flow-000.json")
+	raw, err := os.ReadFile(flowPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	rawStr := string(raw)
+	if !strings.Contains(rawStr, `"onFlowStartCommands"`) {
+		t.Fatalf("flow detail JSON missing onFlowStartCommands key:\n%s", rawStr)
+	}
+	if !strings.Contains(rawStr, `"onFlowCompleteCommands"`) {
+		t.Fatalf("flow detail JSON missing onFlowCompleteCommands key:\n%s", rawStr)
+	}
+
+	detail, err := report.ReadFlowDetail(flowPath)
+	if err != nil {
+		t.Fatalf("ReadFlowDetail() error = %v", err)
+	}
+
+	if len(detail.OnFlowStartCommands) != 1 {
+		t.Fatalf("len(OnFlowStartCommands) = %d, want 1", len(detail.OnFlowStartCommands))
+	}
+	hookStartCmd := detail.OnFlowStartCommands[0]
+	if hookStartCmd.Status != report.StatusFailed {
+		t.Errorf("OnFlowStartCommands[0].Status = %v, want %v", hookStartCmd.Status, report.StatusFailed)
+	}
+	if hookStartCmd.Artifacts.ScreenshotAfter == "" {
+		t.Error("expected failed onFlowStart hook step to have screenshotAfter artifact")
+	}
+	if hookStartCmd.Artifacts.ViewHierarchy == "" {
+		t.Error("expected failed onFlowStart hook step to have viewHierarchy artifact")
+	}
+
+	if len(detail.OnFlowCompleteCommands) != 1 {
+		t.Fatalf("len(OnFlowCompleteCommands) = %d, want 1", len(detail.OnFlowCompleteCommands))
+	}
+
+	// Validate final HTML report also renders hook sections from generated flow JSON.
+	htmlPath := filepath.Join(tmpDir, "report.html")
+	if err := report.GenerateHTML(tmpDir, report.HTMLConfig{OutputPath: htmlPath, Title: "Hook Regression"}); err != nil {
+		t.Fatalf("GenerateHTML() error = %v", err)
+	}
+	htmlRaw, err := os.ReadFile(htmlPath)
+	if err != nil {
+		t.Fatalf("ReadFile(report.html) error = %v", err)
+	}
+	html := string(htmlRaw)
+	if !strings.Contains(html, "onFlowStart hook") {
+		t.Fatalf("report.html missing onFlowStart hook section")
+	}
+	if !strings.Contains(html, "onFlowComplete hook") {
+		t.Fatalf("report.html missing onFlowComplete hook section")
+	}
+}
+
+func TestRunner_Run_HookRunFlow_IsRecordedInFlowJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	driver := &mockDriver{
+		executeFunc: func(step flow.Step) *core.CommandResult {
+			// Force nested tap to fail so onFlowStart runFlow fails.
+			if _, ok := step.(*flow.TapOnStep); ok {
+				return &core.CommandResult{
+					Success: false,
+					Error:   &testError{msg: "nested tap failed"},
+				}
+			}
+			return &core.CommandResult{Success: true}
+		},
+	}
+
+	runner := New(driver, RunnerConfig{
+		OutputDir:   tmpDir,
+		Parallelism: 0,
+		Artifacts:   ArtifactNever,
+		Device:      report.Device{ID: "test", Platform: "android"},
+		App:         report.App{ID: "com.test"},
+	})
+
+	flows := []flow.Flow{
+		{
+			SourcePath: "test.yaml",
+			Config: flow.Config{
+				Name: "Hook RunFlow Recording",
+				OnFlowStart: []flow.Step{
+					&flow.RunFlowStep{
+						BaseStep: flow.BaseStep{StepType: flow.StepRunFlow},
+						Steps: []flow.Step{
+							&flow.TapOnStep{BaseStep: flow.BaseStep{StepType: flow.StepTapOn}},
+						},
+					},
+				},
+			},
+			Steps: []flow.Step{
+				&flow.TapOnStep{BaseStep: flow.BaseStep{StepType: flow.StepTapOn}},
+			},
+		},
+	}
+
+	result, err := runner.Run(context.Background(), flows)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Status != report.StatusFailed {
+		t.Fatalf("Status = %v, want %v", result.Status, report.StatusFailed)
+	}
+
+	flowPath := filepath.Join(tmpDir, "flows", "flow-000.json")
+	raw, err := os.ReadFile(flowPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	rawStr := string(raw)
+	if !strings.Contains(rawStr, `"onFlowStartCommands"`) {
+		t.Fatalf("flow detail JSON missing onFlowStartCommands key:\n%s", rawStr)
+	}
+
+	detail, err := report.ReadFlowDetail(flowPath)
+	if err != nil {
+		t.Fatalf("ReadFlowDetail() error = %v", err)
+	}
+	if len(detail.OnFlowStartCommands) != 1 {
+		t.Fatalf("len(OnFlowStartCommands) = %d, want 1", len(detail.OnFlowStartCommands))
+	}
+	cmd := detail.OnFlowStartCommands[0]
+	if cmd.Type != string(flow.StepRunFlow) {
+		t.Fatalf("hook command Type = %q, want %q", cmd.Type, string(flow.StepRunFlow))
+	}
+	if len(cmd.SubCommands) != 1 {
+		t.Fatalf("len(hook runFlow subCommands) = %d, want 1", len(cmd.SubCommands))
 	}
 }
 
